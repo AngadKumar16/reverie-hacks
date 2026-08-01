@@ -1,0 +1,76 @@
+{
+  "descriptives": {
+    "n_flights_total": 336776,
+    "n_cancelled": 8255,
+    "n_diverted": 1175,
+    "cancellation_rate": 0.024511841698933414,
+    "diversion_rate": 0.0034889659595695654,
+    "disruption_rate": 0.2585101076086182,
+    "cancellation_rate_by_month": {
+      "Jan": 0.0193,
+      "Feb": 0.0505,
+      "Mar": 0.0299,
+      "Apr": 0.0236,
+      "May": 0.0196,
+      "Jun": 0.0357,
+      "Jul": 0.0319,
+      "Aug": 0.0166,
+      "Sep": 0.0164,
+      "Oct": 0.0082,
+      "Nov": 0.0085,
+      "Dec": 0.0364
+    },
+    "cancellation_rate_by_origin": {
+      "EWR": 0.0268,
+      "JFK": 0.0167,
+      "LGA": 0.0301
+    },
+    "cancellation_rate_precipitating": 0.08329710459960003,
+    "cancellation_rate_dry": 0.020202438697916335
+  },
+  "is_cancelled": {
+    "target": "is_cancelled",
+    "n_train": 224910,
+    "n_test": 55403,
+    "base_rate_train": 0.028051220488195278,
+    "base_rate_test": 0.022706351641607857,
+    "pr_auc": 0.5522785249805413,
+    "roc_auc": 0.9355314242610338,
+    "brier": 0.014744585472513599,
+    "pr_auc_over_base": 24.32264476907546,
+    "precision_at_10pct": 0.1815884476534296,
+    "lift_at_10pct": 7.99725339057469,
+    "recall_at_10pct": 0.7996820349761526,
+    "trees": 376
+  },
+  "is_diverted": {
+    "target": "is_diverted",
+    "n_train": 224910,
+    "n_test": 55403,
+    "base_rate_train": 0.0038859988439820374,
+    "base_rate_test": 0.0027796328718661446,
+    "pr_auc": 0.005494674668881504,
+    "roc_auc": 0.6081006813780256,
+    "brier": 0.00277027862936917,
+    "pr_auc_over_base": 1.976762731688584,
+    "precision_at_10pct": 0.005595667870036101,
+    "lift_at_10pct": 2.0130960195039616,
+    "recall_at_10pct": 0.2012987012987013,
+    "trees": 183
+  },
+  "is_disrupted": {
+    "target": "is_disrupted",
+    "n_train": 224910,
+    "n_test": 55403,
+    "base_rate_train": 0.27988084122537904,
+    "base_rate_test": 0.2690107033915131,
+    "pr_auc": 0.5654993777912185,
+    "roc_auc": 0.7322824379526174,
+    "brier": 0.16904099929786653,
+    "pr_auc_over_base": 2.1021445268227907,
+    "precision_at_10pct": 0.7108303249097473,
+    "lift_at_10pct": 2.6423867747567584,
+    "recall_at_10pct": 0.2642243692968331,
+    "trees": 346
+  }
+}

@@ -96,20 +96,41 @@ def _clean_manufacturer(s: pd.Series) -> pd.Series:
 # ---------------------------------------------------------------------------
 
 
-def build_base(tables: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Assemble one row per flight with schedule fields and the target."""
+def build_base(tables: Dict[str, pd.DataFrame],
+               drop_unlabelled: bool = True) -> pd.DataFrame:
+    """Assemble one row per flight with schedule fields and the targets.
+
+    ``drop_unlabelled=True`` (the default) removes cancelled and diverted
+    flights, which have no arrival delay and so cannot carry an "arrived late"
+    label. That is the frame the main model trains on.
+
+    ``drop_unlabelled=False`` keeps all 336,776 rows and is used by
+    ``src/cancellations.py`` to model disruption as three outcomes rather than
+    two, which is what the "cancellations are dropped" limitation asks for.
+    """
     flights = tables["flights"].copy()
 
+    # A cancelled flight never left: no departure time and no arrival time.
+    # A diverted flight left but did not arrive where it was meant to, so it
+    # has a departure time and no arrival delay. The two are disjoint.
+    flights["is_cancelled"] = (
+        flights["dep_time"].isna() & flights["arr_time"].isna()
+    ).astype(int)
+    flights["is_diverted"] = (
+        flights["dep_time"].notna() & flights["arr_delay"].isna()
+    ).astype(int)
+
     n_all = len(flights)
-    # Cancelled / diverted flights have no arrival delay. They cannot be
-    # labelled for an "arrived late" target, so they are removed. This is a
-    # documented limitation: a production system would model cancellation as a
-    # third outcome, and dropping it mildly under-states operational disruption.
-    flights = flights[flights["arr_delay"].notna()].copy()
-    log.info("dropped %d/%d rows without an arrival delay (cancelled/diverted)",
-             n_all - len(flights), n_all)
+    if drop_unlabelled:
+        flights = flights[flights["arr_delay"].notna()].copy()
+        log.info("dropped %d/%d rows without an arrival delay (cancelled/diverted)",
+                 n_all - len(flights), n_all)
 
     flights[TARGET] = (flights["arr_delay"] > DELAY_THRESHOLD_MIN).astype(int)
+    # Any of: cancelled, diverted, or arrived more than 15 minutes late.
+    flights["is_disrupted"] = (
+        flights[TARGET] | flights["is_cancelled"] | flights["is_diverted"]
+    ).astype(int)
 
     # --- exact scheduled timestamps ------------------------------------
     # `time_hour` is the scheduled departure hour expressed in UTC, produced by
@@ -448,6 +469,7 @@ def add_target_encodings(
     m: int = TARGET_ENCODING_SMOOTHING,
     n_folds: int = TARGET_ENCODING_FOLDS,
     seed: int = SEED,
+    target: str = TARGET,
 ) -> Tuple[pd.DataFrame, List[pd.DataFrame], List[str]]:
     """Bayesian-smoothed historical late rates.
 
@@ -459,7 +481,7 @@ def add_target_encodings(
     """
     from sklearn.model_selection import KFold
 
-    prior = train[TARGET].mean()
+    prior = train[target].mean()
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
     created: List[str] = []
 
@@ -471,7 +493,7 @@ def add_target_encodings(
         oof = pd.Series(np.nan, index=train.index, dtype=float)
         for fit_idx, apply_idx in kf.split(train):
             fit = train.iloc[fit_idx]
-            stats = fit.groupby(keys, observed=True)[TARGET].agg(["sum", "count"])
+            stats = fit.groupby(keys, observed=True)[target].agg(["sum", "count"])
             rate = _smoothed_rate(stats, prior, m)
             applied = train.iloc[apply_idx]
             key_index = pd.MultiIndex.from_frame(applied[keys]) if len(keys) > 1 \
@@ -480,7 +502,7 @@ def add_target_encodings(
         train[name] = oof.fillna(prior)
 
         # --- full-training values for every other split ----------------
-        stats = train.groupby(keys, observed=True)[TARGET].agg(["sum", "count"])
+        stats = train.groupby(keys, observed=True)[target].agg(["sum", "count"])
         rate = _smoothed_rate(stats, prior, m)
         for other in others:
             key_index = pd.MultiIndex.from_frame(other[keys]) if len(keys) > 1 \
@@ -498,8 +520,9 @@ def add_target_encodings(
 
 
 def build_feature_frame(tables: Dict[str, pd.DataFrame],
-                        weather_lag_hours: int = 0) -> pd.DataFrame:
-    df = build_base(tables)
+                        weather_lag_hours: int = 0,
+                        drop_unlabelled: bool = True) -> pd.DataFrame:
+    df = build_base(tables, drop_unlabelled=drop_unlabelled)
     df = add_calendar_features(df)
     df = add_congestion_features(df)
     df = add_rotation_features(df)
