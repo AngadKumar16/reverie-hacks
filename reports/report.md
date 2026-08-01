@@ -350,11 +350,18 @@ Reading these honestly:
   Real, but small next to the 0.138 that logistic regression itself gains over
   the historical-rate rule. Most of the value came from constructing the
   features, not from the model class.
-- **XGBoost and LightGBM are indistinguishable** (0.508 vs 0.507, ROC-AUC
-  identical to three decimals) despite independent searches over different
-  parameterisations. Two libraries converging on the same number is evidence
-  we are near the ceiling of what these features support, not evidence that
-  more tuning would help.
+- **XGBoost edges LightGBM, and the first version of this comparison was
+  unfair.** Initially XGBoost got 8 search draws to LightGBM's 40, and its
+  categorical features were one-hot expanded while LightGBM used native
+  categorical splits. On that footing the two looked identical (0.508 vs
+  0.507). Rerun with 40 draws over a matched nine-dimensional space,
+  `grow_policy="lossguide"` so both grow leaf-wise, and `enable_categorical`
+  so both see the same representation, XGBoost is ahead on cross-validation at
+  every percentile (median draw 0.5371 against 0.5328) and on the test set
+  (0.513 against 0.507). The gap is small, but the lesson is not: **a
+  library comparison is mostly a comparison of the search budget and the
+  feature representation each library was given.** Ours was accidentally
+  rigged, and it took deliberately re-levelling it to notice.
 - Random forest has the best Brier score and log loss despite worse ranking,
   because averaging bootstrap votes produces conservative, well-spread
   probabilities. Discrimination and calibration are separate properties, and
@@ -445,6 +452,144 @@ So the severity head should be presented as a *sorting* tool, not a
 *forecasting* tool. "This flight is in the worst decile, where the typical
 delay is half an hour" is supportable. "This flight will be 31 minutes late" is
 not.
+
+That verdict was weak enough to be worth a second attempt, and the second
+attempt is in §5.6.
+
+### 5.5 Severity, reframed: tiers and quantiles
+
+The conditional-mean regressor answers a question nobody asks — "what is the
+expected delay of a randomly chosen flight" — and L1 loss on a distribution
+that is 76% on-time is minimised by predicting the median, so it does. Three
+replacements, each matched to a decision that gets made.
+
+**Severity tiers.** Separate classifiers for delay > 15, > 60 and > 120
+minutes. The thresholds are operationally distinct: 15 minutes is the on-time
+metric, 60 breaks most connections, 120 enters compensation territory.
+
+| Tier | Base rate | PR-AUC | ROC-AUC | Precision in riskiest 10% | Lift |
+|---|---:|---:|---:|---:|---:|
+| > 15 min | 25.0% | 0.505 | 0.716 | 63.7% | 2.55× |
+| > 60 min | 7.4% | 0.293 | 0.770 | 30.5% | **4.10×** |
+| > 120 min | 2.3% | 0.168 | **0.793** | 11.9% | **5.14×** |
+
+**Severe delays are more predictable than marginal ones**, not less. ROC-AUC
+rises from 0.716 to 0.793 as the tier gets rarer, and lift more than doubles.
+That is the opposite of the usual rare-event story, and it makes sense
+mechanically: a two-hour delay needs a real cause — a storm, a closed runway, a
+badly broken rotation — and those causes are in the feature set. A 20-minute
+delay is mostly noise. The model is best exactly where the consequences are
+worst.
+
+**Quantile heads.** Quantile regression at the 50th and 90th percentiles,
+scored with pinball loss against a constant-quantile baseline.
+
+| Head | Pinball | Constant baseline | Improvement | Coverage (target) |
+|---|---:|---:|---:|---:|
+| P50 | 11.395 | 11.631 | 2.0% | 0.343 (0.50) |
+| P90 | 7.757 | 9.281 | **16.4%** | 0.860 (0.90) |
+
+Same split as the tiers: the **upper tail is predictable and the centre is
+not**. The P90 head is 16.4% better than a constant, the P50 head is 2.0%
+better, i.e. nothing. Both under-cover on the test period (0.860 against a 0.90
+target) for the same December reason as §6 — the quantile heads inherit the
+level shift, and would need the same rolling correction.
+
+![Severity tiers and quantiles](figures/23_severity_tiers_quantiles.png)
+
+![P90 band](figures/24_severity_p90_band.png)
+
+**Conditional on lateness.** Trained only on flights that did arrive late, MAE
+improves from 32.1 to 29.5 minutes, a 7.9% gain — three and a half times the
+2.2% the unconditional model managed, because the target no longer has a
+76%-on-time spike at its centre.
+
+The reframing is the finding: the same features that barely support a
+conditional mean comfortably support a tail estimate and a tier classifier.
+Choosing the wrong output format made a usable model look useless.
+
+### 5.6 How far ahead can this actually be predicted?
+
+The model uses the weather observation at the scheduled departure hour. That is
+legitimate at a zero-hour horizon, but the ablation (§7.1) showed weather
+carries 0.141 of the 0.507, so "you would need a forecast to go further ahead"
+cannot be left as an unquantified caveat.
+
+For a horizon of *h* hours each flight was given the observation from *h* hours
+before its scheduled departure, and the model retrained from scratch. That is a
+**persistence forecast** — the crudest one possible, "conditions will be what
+they are now". Real numerical weather prediction beats persistence at every
+horizon past an hour or two, so this curve is a **lower bound** on what a
+forecast-fed model would achieve.
+
+![Forecast horizon](figures/25_forecast_horizon.png)
+
+| Horizon | PR-AUC | ROC-AUC | Precision in riskiest 10% | Share of weather's contribution retained |
+|---|---:|---:|---:|---:|
+| 0 h | 0.507 | 0.716 | 64.1% | 100% |
+| 1 h | 0.504 | 0.713 | 64.0% | 98% |
+| 2 h | 0.492 | 0.705 | 63.3% | 89% |
+| 3 h | 0.487 | 0.701 | 62.0% | **86%** |
+| 6 h | 0.467 | 0.685 | 59.8% | **72%** |
+| 12 h | 0.420 | 0.660 | 50.9% | 39% |
+| 24 h | 0.363 | 0.617 | 42.2% | **0%** |
+
+Three things to take from it:
+
+1. **A three-hour planning horizon costs almost nothing** — 0.020 PR-AUC, 86%
+   of weather's contribution retained, and that is with the worst possible
+   forecast. Six hours still retains 72%. The system is deployable well before
+   push-back, which was the open question.
+2. **Twenty-four hours is worthless, exactly.** The h=24 model scores 0.3634;
+   the model trained with no weather at all scores 0.3640. Yesterday's weather
+   at this hour carries no usable information about today's. That the curve
+   lands precisely on the no-weather floor is a built-in sanity check that the
+   experiment measures what it claims to.
+3. **Ranking decays more slowly than calibration-sensitive metrics.** Precision
+   in the riskiest 10% holds above 60% out to three hours. Even at 12 hours the
+   top decile is half late, against a 25% base rate.
+
+### 5.7 Recovering the flights that were thrown away
+
+§2 dropped 9,430 cancelled and diverted flights because they have no arrival
+delay, and flagged it as a limitation. It is the worst kind of limitation:
+cancellation is the most disruptive outcome for a passenger, and cancellations
+are not randomly distributed — 5.1% of February departures against 0.8% in
+October. Dropping them makes the year look calmer than it was, precisely in the
+weeks the model exists to warn about.
+
+So keep all 336,776 flights and model three outcomes on the identical
+pre-flight feature set. `is_cancelled` (never left: no departure time, no
+arrival time), `is_diverted` (left, arrived somewhere else), and `is_disrupted`
+(any of cancelled, diverted, or more than 15 minutes late). Target encodings
+were refitted against each target — a carrier's historical *late* rate says
+little about its *cancellation* rate.
+
+![Disruption model](figures/26_disruption_model.png)
+
+| Target | Base rate | PR-AUC | ROC-AUC | Precision in riskiest 10% | Lift | Recall at 10% |
+|---|---:|---:|---:|---:|---:|---:|
+| Cancelled | 2.3% | 0.552 | **0.936** | 18.2% | **8.00×** | **80.0%** |
+| Diverted | 0.3% | 0.006 | 0.608 | 0.6% | 2.01× | 20.1% |
+| Any disruption | 26.9% | 0.566 | 0.732 | 71.1% | 2.64× | 26.4% |
+
+The result inverts the limitation. **The rows we threw away were the most
+predictable part of the problem.** Cancellation reaches ROC-AUC 0.936 — far
+above the 0.716 of the late/on-time task — and ranking flights by cancellation
+risk puts **80% of all December cancellations in the top 10% of the list**. The
+mechanism is the same one that makes severe delays predictable: a cancellation
+needs a real cause, and 8.3% of flights scheduled into a precipitating hour
+were cancelled against 2.0% in dry hours.
+
+Diversions are the honest negative result: PR-AUC 0.006 against a 0.003 base
+rate, ROC-AUC 0.608. Barely better than chance, and it should be. A diversion
+is decided in the air by conditions at the *destination*, and this dataset
+contains weather for the three NYC origins only. There is nothing in the
+feature set that could predict it.
+
+The combined disruption model is the one to deploy: PR-AUC 0.566 and 71.1%
+precision in the riskiest decile, both better than the late-only model, because
+the added outcome is the easy one.
 
 ### 5.5 Where the model fails
 
@@ -639,13 +784,30 @@ by the carrier × hour rate and the early departure slot.
 
 Stated plainly, because most of them bound the result.
 
-1. **Cancellations and diversions are dropped** (2.8%). They are the worst
-   outcome and they cluster in bad weather, so disruption is understated.
-2. **Weather is observed, not forecast.** At the scheduled departure time the
-   current observation is genuinely available, so the pre-flight framing is
-   sound. But extending the horizon to two or six hours requires a forecast,
-   which is noisier — and since weather carries almost all the signal (§7.1),
-   the model would degrade materially. We have not measured how much.
+Three of the limitations in the first version of this report have since been
+measured rather than asserted, and are recorded here as resolved:
+
+- ~~Cancellations and diversions are dropped.~~ **Resolved in §5.7.** All
+  336,776 flights are now modelled as three outcomes. Cancellation turned out
+  to be the most predictable outcome in the study (ROC-AUC 0.936). Diversion
+  remains genuinely unpredictable from NYC-origin features, which is itself the
+  answer.
+- ~~Weather is observed, not forecast, and we have not measured the cost.~~
+  **Resolved in §5.6.** A persistence-forecast horizon curve puts a lower bound
+  on it: three hours costs 0.020 PR-AUC, six hours retains 72% of weather's
+  contribution, twenty-four hours retains none.
+- ~~The severity head barely beats a constant.~~ **Resolved in §5.5.**
+  Reframed as tiers and quantiles, where the same features support ROC-AUC
+  0.793 on the >120-minute tier and a P90 head 16.4% better than a constant.
+
+What remains:
+
+1. **Diversions are not predictable here** (§5.7), and no amount of feature
+   work on NYC-origin data will change that. It needs destination weather and
+   en-route conditions.
+2. **The horizon curve is persistence, not forecast.** It bounds the answer
+   from below, which is the safe direction, but a real NWP forecast feed would
+   land somewhere above the curve and we cannot say where without one.
 3. **The inbound leg is invisible.** Only NYC departures are recorded, so the
    dominant propagation mechanism is only partly observable (§3.3). A full BTS
    extract with all US flights would let the true inbound aircraft be tracked
@@ -720,6 +882,10 @@ fixed (`SEED = 42` in `src/config.py`); random search draws are seeded, so draw
 | File | Contents |
 |---|---|
 | `reports/metrics/evaluation.json` | every test metric, threshold sweep, calibration comparison |
+| `reports/metrics/horizon.json` | forecast-horizon curve, 7 horizons |
+| `reports/metrics/disruption.json` | cancellation / diversion / disruption models |
+| `reports/metrics/severity_v2.json` | tiers, quantile heads, conditional-on-late |
+| `reports/metrics/model_fingerprints.json` | booster SHA-256 checksums |
 | `reports/metrics/lgbm_search.json` | all 40 search draws with per-fold scores |
 | `reports/metrics/xgb_search.json` | 8 XGBoost draws |
 | `reports/metrics/ablation.json` | feature-family ablation |
@@ -727,11 +893,11 @@ fixed (`SEED = 42` in `src/config.py`); random search draws are seeded, so draw
 | `reports/metrics/segment_errors.csv` | per-segment error analysis |
 | `reports/metrics/threshold_sweep_validation.csv` | full precision/recall/cost curve |
 | `reports/metrics/eda_summary.json` | descriptive statistics |
-| `reports/figures/01–22` | all figures |
+| `reports/figures/01–26` | all figures |
 
 ## Appendix C — Test suite
 
-14 checks in `tests/test_features.py`, run with `make test`:
+16 checks in `tests/test_features.py`, run with `make test`:
 
 *Leakage* — pre-flight features exclude all outcome columns; gate mode adds
 exactly the three post-push-back features; the inbound-leg delay never reads
@@ -745,4 +911,5 @@ across the joins.
 plausible taxi and JFK–LAX comes out near six hours; HH:MM conversion;
 congestion counts nest correctly; rotation gaps are non-negative and same-day;
 the target matches its definition; the weather join is complete after filling;
-no object dtypes reach the model.
+the weather join key is unique (the DST trap of §2.2); every forecast horizon
+joins one-to-one; no object dtypes reach the model.
