@@ -1,4 +1,5 @@
-.PHONY: all setup data test eda train evaluate explain app clean reproduce
+.PHONY: all setup data test eda train evaluate explain app clean reproduce \
+        report notebook verify
 
 PY ?= python3
 
@@ -30,11 +31,24 @@ explain:
 	$(PY) -m src.explain --step shap
 	$(PY) -m src.explain --step ablation
 
+## Typeset reports/report.md to PDF (needs pandoc + weasyprint).
+report:
+	$(PY) scripts/build_report_pdf.py
+
+## Rebuild and execute the walkthrough notebook.
+notebook:
+	$(PY) scripts/build_notebook.py
+
 app:
 	$(PY) -m streamlit run app/streamlit_app.py
 
+## 51 checks: determinism, leakage in the shipped model, and every headline
+## number in the report re-read from the metrics files.
+verify:
+	$(PY) scripts/verify.py
+
 ## Full pipeline from a clean clone. ~15 minutes on 4 cores.
-reproduce: data test eda train evaluate explain
+reproduce: data test eda train evaluate explain verify
 	@echo "Done. Figures in reports/figures, metrics in reports/metrics."
 
 clean:

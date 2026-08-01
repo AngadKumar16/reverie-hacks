@@ -383,11 +383,14 @@ Minimising expected cost on the validation period gives a threshold of
 | Share of flights flagged | 26.0% |
 | Expected cost per flight | **0.645** |
 
-Against the alternatives: alerting on nothing costs 1.000 per flight, alerting
-on everything costs 0.750, and the default 0.5 threshold costs 0.844. **The
-default threshold captures barely a fifth of the available benefit.** Choosing
-it by cost rather than convention is the difference between a model that helps
-and one that does not.
+Against the alternatives: alerting on nothing costs 1.000 per flight and
+alerting on *everything* costs 0.750. The cost-optimal threshold beats the
+better of those by 14%. The default 0.5 threshold costs **0.844** — 31% worse
+than the tuned threshold, and worse than the trivial policy of alerting on
+every single flight. **A well-fitted model deployed at the default threshold
+would have been actively counter-productive here.** Choosing the threshold by
+cost rather than convention is the difference between a model that helps and
+one that does not.
 
 ![Confusion matrix](figures/11_confusion_matrix.png)
 
@@ -665,7 +668,8 @@ answers a question nobody needs answered.
 magnitude. Feature construction beat model selection: logistic regression on
 good features beat the historical-rate rule by 0.138 PR-AUC, while gradient
 boosting on those same features beat logistic regression by only 0.029. Two
-independently tuned boosting libraries landed within 0.001 of each other, which
+independently tuned boosting libraries landed within 0.002 PR-AUC of each
+other, which
 suggests the ceiling here is the data, not the algorithm.
 
 **On method.** Three of our findings are about method rather than flights, and
@@ -682,8 +686,9 @@ they are the ones most likely to transfer:
   Only an ablation answers the question "is this data worth collecting".
 
 **On deployment.** Ship the pre-flight model with a cost-derived threshold of
-0.20 rather than 0.5 — the default forfeits four fifths of the available
-benefit — and a rolling 14-day isotonic recalibration, which recovers 5.7% of
+0.20 rather than 0.5 — at the default the model costs 31% more per flight than
+at the tuned threshold, and more than alerting on every flight — and a rolling
+14-day isotonic recalibration, which recovers 5.7% of
 Brier score under the December shift that retraining alone would not catch.
 
 ---

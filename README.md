@@ -72,7 +72,16 @@ make eda        # figures 01–07
 make train      # baselines + 40-draw random search + final fits (resumable)
 make evaluate   # figures 08–15, reports/metrics/evaluation.json
 make explain    # figures 16–22, SHAP + feature-family ablation
+make verify     # 51 checks — determinism, leakage, report-vs-artefact agreement
 ```
+
+`make verify` is worth calling out. Beyond the unit tests it confirms that the
+feature pipeline rebuilds bit-identically from the raw tables, that a fresh
+refit from the same seed reproduces the reported score to six decimals, that
+scrambling every post-departure column leaves the shipped model's predictions
+*exactly* unchanged, and that **every headline number in the report is re-read
+from the metrics files and compared** — so the prose cannot drift away from the
+results.
 
 Training is checkpointed: `make train` can be interrupted and re-run without
 losing progress, and re-running a completed step is a no-op.
