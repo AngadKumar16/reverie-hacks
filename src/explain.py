@@ -283,7 +283,17 @@ def step_ablation(budget_s: float | None) -> bool:
     if ABLATION_FILE.exists():
         done = json.loads(ABLATION_FILE.read_text())
 
-    jobs = [("full model", [])] + [(g, v) for g, v in groups.items() if v]
+    # A targeted probe on top of the family ablations. `day_of_year`,
+    # `week_of_year` and `month` are monotone indices of calendar time. Under a
+    # temporal split their test values (day 305-365) lie entirely outside the
+    # training range (day 1-243), so every test flight lands in the model's
+    # last bin and receives the same constant nudge. SHAP ranks day_of_year as
+    # the single most influential feature, which makes this worth measuring
+    # rather than assuming.
+    extra = [
+        ("time index (day/week/month)", ["day_of_year", "week_of_year", "month"]),
+    ]
+    jobs = [("full model", [])] + [(g, v) for g, v in groups.items() if v] + extra
     for label, drop in jobs:
         if label in done:
             continue
