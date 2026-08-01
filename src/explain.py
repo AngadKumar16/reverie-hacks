@@ -316,8 +316,8 @@ def _fig_level_vs_rank(sv: np.ndarray, X: pd.DataFrame,
     for i in interesting:
         ax.annotate(pretty(names[i]), (sd[i], abs(mean_signed[i])),
                     textcoords="offset points", xytext=(7, 5), fontsize=10)
-    ax.set_xlabel("SD of SHAP value  ->  separates flights (drives AUC)")
-    ax.set_ylabel("|mean SHAP value|  ->  shifts every prediction (drives calibration)")
+    ax.set_xlabel("SD of SHAP  ->  separates flights (drives AUC)", fontsize=13)
+    ax.set_ylabel("|mean SHAP|  ->  shifts the level (drives calibration)", fontsize=13)
     ax.set_title("Not all 'important' features are useful\n"
                  "Points far above the diagonal move the level without ranking anything",
                  fontsize=14)
