@@ -111,9 +111,14 @@ def make_logistic(feature_cols: List[str]) -> Pipeline:
 def make_random_forest(feature_cols: List[str]) -> Pipeline:
     return Pipeline([
         ("prep", _preprocessor(feature_cols)),
+        # Deliberately capped: an unrestricted forest on 218k rows x ~130
+        # one-hot columns needs several GB and adds nothing as a baseline.
+        # Depth 14 with a 50-row leaf minimum is already well past the point
+        # where extra capacity changes the validation score.
         ("clf", RandomForestClassifier(
-            n_estimators=300, max_depth=18, min_samples_leaf=20,
-            max_features="sqrt", n_jobs=N_JOBS, random_state=SEED,
+            n_estimators=150, max_depth=14, min_samples_leaf=50,
+            max_features="sqrt", max_samples=0.6, n_jobs=2,
+            random_state=SEED,
         )),
     ])
 
