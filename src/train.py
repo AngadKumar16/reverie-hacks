@@ -50,7 +50,11 @@ log = logging.getLogger(__name__)
 SEARCH_FILE = METRICS / "lgbm_search.json"
 XGB_SEARCH_FILE = METRICS / "xgb_search.json"
 N_SEARCH_DRAWS = 40
-N_XGB_DRAWS = 10
+# XGBoost is a cross-check on the LightGBM result, not a competitor with an
+# equal budget: 8 draws is enough to confirm the two libraries land in the same
+# place, and each XGBoost fit costs ~4x a LightGBM fit because the categorical
+# features have to be one-hot expanded first.
+N_XGB_DRAWS = 8
 
 
 class Budget:
