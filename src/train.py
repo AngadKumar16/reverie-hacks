@@ -293,16 +293,11 @@ def step_xgb_final(train, valid, feats_a, budget: Budget) -> bool:
     params = max(done, key=lambda r: r["mean_ap"])["params"]
     Xtr, ytr = xy(train, feats_a)
     Xva, yva = xy(valid, feats_a)
-    Xtr_n, Xva_n = _onehot(Xtr), _onehot(Xva)
-    Xva_n = Xva_n.reindex(columns=Xtr_n.columns, fill_value=0)
-    model = XGBClassifier(n_estimators=2000, tree_method="hist",
-                          eval_metric="aucpr", early_stopping_rounds=150,
-                          n_jobs=N_JOBS, random_state=SEED, **params)
-    model.fit(Xtr_n, ytr, eval_set=[(Xva_n, yva)], verbose=False)
+    model = XGBClassifier(**M.XGB_FIXED, early_stopping_rounds=150, **params)
+    model.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)
     log.info("xgboost: %d trees, valid PR-AUC %.4f", model.best_iteration,
-             average_precision_score(yva, model.predict_proba(Xva_n)[:, 1]))
+             average_precision_score(yva, model.predict_proba(Xva)[:, 1]))
     joblib.dump(model, MODELS / "xgboost.joblib")
-    joblib.dump(list(Xtr_n.columns), MODELS / "xgboost_columns.joblib")
     return True
 
 

@@ -129,6 +129,17 @@ also contains a mistake we made and corrected — see §3.3.
   registry. Left as missing rather than imputed — LightGBM learns a
   missing-value direction natively, and "this airframe is not in the registry"
   is itself weakly informative.
+- **A non-unique join key, found late.** The clocks went back on 3 November
+  2013, so local hour 01:00 occurs twice at each airport and the weather table
+  contains six rows whose `(origin, date, hour)` key is not unique. A left join
+  on a non-unique key silently duplicates flights. This is invisible in the
+  main model — nothing departs at 01:00 — and only surfaced when the
+  forecast-horizon experiment (§5.6) shifted the join backwards in time and
+  mapped real departures onto that hour, tripping an assertion on the row
+  count. Fixed by keeping the first observation of the repeated hour; two tests
+  now guard it. The lesson is that the bug was latent and harmless for months
+  of work, and would have stayed latent without an experiment that stressed the
+  join in a new direction.
 - **Timezone correctness.** Scheduled block time cannot be computed by
   subtracting two clock times, because arrival is in the destination's
   timezone. `tests/test_features.py` verifies that the corrected block time
@@ -325,8 +336,8 @@ All numbers on the untouched Nov–Dec test period: 53,991 flights, 25.0% late.
 | Historical-rate rule | 0.340 | 0.621 | 0.182 | 0.547 |
 | Logistic regression | 0.478 | 0.708 | 0.166 | 0.509 |
 | Random forest | 0.491 | 0.713 | **0.164** | **0.504** |
-| **LightGBM (tuned)** | 0.507 | 0.716 | 0.167 | 0.519 |
-| XGBoost (tuned) | **0.508** | 0.716 | 0.167 | 0.517 |
+| LightGBM (tuned) | 0.507 | 0.716 | 0.167 | 0.519 |
+| **XGBoost (tuned)** | **0.513** | **0.719** | 0.168 | 0.518 |
 | *LightGBM, post-push-back* | *0.846* | *0.903* | *0.097* | *0.327* |
 
 ![ROC and PR curves](figures/08_roc_pr_curves.png)
