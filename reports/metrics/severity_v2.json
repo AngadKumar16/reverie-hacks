@@ -1,0 +1,68 @@
+{
+  "tiers": {
+    "gt15": {
+      "threshold_min": 15,
+      "base_rate": 0.24989350076864664,
+      "pr_auc": 0.5048820760446033,
+      "roc_auc": 0.716087876414425,
+      "pr_auc_lift_over_base": 2.0203889836735973,
+      "precision_at_10pct": 0.6369698092239303,
+      "lift_at_10pct": 2.5489650881862747,
+      "trees": 421
+    },
+    "gt60": {
+      "threshold_min": 60,
+      "base_rate": 0.07440128910373951,
+      "pr_auc": 0.2925184202116904,
+      "roc_auc": 0.7701804091724909,
+      "pr_auc_lift_over_base": 3.931631074346372,
+      "precision_at_10pct": 0.30524171142804224,
+      "lift_at_10pct": 4.102640090045165,
+      "trees": 221
+    },
+    "gt120": {
+      "threshold_min": 120,
+      "base_rate": 0.02318905002685633,
+      "pr_auc": 0.16748972591126982,
+      "roc_auc": 0.792525394965999,
+      "pr_auc_lift_over_base": 7.222793763318984,
+      "precision_at_10pct": 0.11909612891276163,
+      "lift_at_10pct": 5.1358778723074385,
+      "trees": 176
+    }
+  },
+  "quantile": {
+    "p50": {
+      "pinball": 11.39527517429751,
+      "pinball_constant_baseline": 11.631253357040988,
+      "constant_baseline_value_min": -4.0,
+      "coverage": 0.3427608305087885,
+      "coverage_target": 0.5,
+      "coverage_constant_baseline": 0.4781722879739216,
+      "median_prediction_min": -10.438967790269851,
+      "trees": 117,
+      "pinball_improvement_pct": 2.0288284976668347
+    },
+    "p90": {
+      "pinball": 7.756954025425795,
+      "pinball_constant_baseline": 9.281267248245078,
+      "constant_baseline_value_min": 59.0,
+      "coverage": 0.8602359652534681,
+      "coverage_target": 0.9,
+      "coverage_constant_baseline": 0.9236354207182679,
+      "median_prediction_min": 27.507485218942072,
+      "trees": 217,
+      "pinball_improvement_pct": 16.423546290055413
+    }
+  },
+  "conditional": {
+    "n_train_late": 55765,
+    "n_test_late": 13492,
+    "mae_min": 29.527518836086738,
+    "mae_constant_baseline_min": 32.0486214052772,
+    "constant_baseline_min": 46.0,
+    "spearman_rho": 0.3049136100437442,
+    "trees": 726,
+    "improvement_pct": 7.866493030415755
+  }
+}

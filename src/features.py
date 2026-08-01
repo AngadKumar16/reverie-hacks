@@ -323,11 +323,42 @@ def prepare_weather(weather: pd.DataFrame) -> pd.DataFrame:
         "precip_3h", "precip_6h", "visib_min_3h", "wind_gust_max_3h",
         "pressure_change_3h", "low_visibility", "freezing", "is_precipitating",
     ]
-    return w[keep].rename(columns={c: f"wx_{c}" for c in keep[5:]})
+    w = w[keep]
+
+    # Daylight-saving fall-back: on 3 November 2013 the clocks went back, so
+    # local hour 01:00 occurs twice at each airport. That leaves six rows whose
+    # (origin, date, hour) key is not unique, and a left join on a non-unique
+    # key silently duplicates flights. It happens to be harmless at a zero-hour
+    # horizon because nothing departs at 01:00, but any non-zero lag maps real
+    # departures onto that hour and the row count blows up. Keep the first
+    # observation of the repeated hour.
+    key = ["origin", "year", "month", "day", "hour"]
+    dupes = int(w.duplicated(subset=key).sum())
+    if dupes:
+        log.info("dropped %d duplicate weather hours (DST fall-back)", dupes)
+        w = w.drop_duplicates(subset=key, keep="first")
+
+    return w.rename(columns={c: f"wx_{c}" for c in keep[5:]})
 
 
-def add_weather_features(df: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
+def add_weather_features(df: pd.DataFrame, weather: pd.DataFrame,
+                         lag_hours: int = 0) -> pd.DataFrame:
+    """Join origin weather to each flight.
+
+    ``lag_hours`` shifts the observation used *backwards* in time: with
+    ``lag_hours=3`` a flight scheduled at 18:00 is given the 15:00 observation.
+    That is a persistence forecast issued three hours ahead, and it lets the
+    prediction horizon be extended using only data already in hand. See
+    ``src/horizon.py``. The default of 0 is the deployable configuration --
+    the observation available at the scheduled departure time itself.
+    """
     w = prepare_weather(weather)
+    if lag_hours:
+        ts = pd.to_datetime(dict(year=w["year"], month=w["month"],
+                                 day=w["day"], hour=w["hour"]))
+        ts = ts + pd.Timedelta(hours=lag_hours)
+        w["year"], w["month"] = ts.dt.year, ts.dt.month
+        w["day"], w["hour"] = ts.dt.day, ts.dt.hour
     before = len(df)
     df = df.merge(w, on=["origin", "year", "month", "day", "hour"], how="left")
     assert len(df) == before, "weather join changed the row count"
@@ -466,12 +497,13 @@ def add_target_encodings(
 # ---------------------------------------------------------------------------
 
 
-def build_feature_frame(tables: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+def build_feature_frame(tables: Dict[str, pd.DataFrame],
+                        weather_lag_hours: int = 0) -> pd.DataFrame:
     df = build_base(tables)
     df = add_calendar_features(df)
     df = add_congestion_features(df)
     df = add_rotation_features(df)
-    df = add_weather_features(df, tables["weather"])
+    df = add_weather_features(df, tables["weather"], lag_hours=weather_lag_hours)
     df = add_metadata_features(df, tables)
     return df.reset_index(drop=True)
 

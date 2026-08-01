@@ -166,6 +166,28 @@ def test_target_definition(built):
     assert df["is_delayed"].notna().all()
 
 
+def test_weather_key_is_unique(built):
+    """A left join on a non-unique key silently duplicates rows.
+
+    The DST fall-back on 3 Nov 2013 repeats local hour 01:00 at each airport.
+    That is invisible at a zero-hour horizon (nothing departs at 01:00) but
+    corrupts every lagged join in src/horizon.py.
+    """
+    tables = load_tables()
+    w = F.prepare_weather(tables["weather"])
+    key = ["origin", "year", "month", "day", "hour"]
+    assert w.duplicated(subset=key).sum() == 0
+
+
+def test_lagged_weather_join_preserves_row_count(built):
+    """Every forecast horizon must join one-to-one."""
+    tables = load_tables()
+    base = built[0]
+    for lag in (0, 6, 24):
+        lagged = F.build_feature_frame(tables, weather_lag_hours=lag)
+        assert len(lagged) == len(base), f"lag={lag} changed the row count"
+
+
 def test_weather_join_is_complete_after_fill(built):
     df = built[0]
     wx = [c for c in df.columns if c.startswith("wx_")]
