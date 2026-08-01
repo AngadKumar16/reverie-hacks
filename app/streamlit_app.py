@@ -51,8 +51,34 @@ def load_everything():
     X, y = xy(test, cols)
     p = clf.predict_proba(X)[:, 1]
     mins = reg.predict(X)
+
+    # Severity heads (src/severity.py) and the cancellation head
+    # (src/cancellations.py). Loaded opportunistically so the app still runs on
+    # a partial pipeline.
+    extra = {}
+    for label, fname in [("p90", "lightgbm_quantile_p90.joblib"),
+                         ("gt60", "lightgbm_tier_gt60.joblib"),
+                         ("gt120", "lightgbm_tier_gt120.joblib")]:
+        path = MODELS / fname
+        if path.exists():
+            m = joblib.load(path)
+            extra[label] = (m.predict(X) if label == "p90"
+                            else m.predict_proba(X)[:, 1])
+
+    cancel = None
+    cpath = MODELS / "lightgbm_is_cancelled.joblib"
+    if cpath.exists():
+        # The cancellation model was fitted with encodings refitted against the
+        # cancellation target, so it carries its own feature list.
+        try:
+            cancel = joblib.load(cpath).predict_proba(
+                X[list(joblib.load(cpath).feature_name_)])[:, 1]
+        except Exception:
+            cancel = None
+
     return dict(test=test, cols=cols, clf=clf, reg=reg, explainer=explainer,
-                X=X, y=y, p=p, mins=mins, valid=valid, train=train)
+                X=X, y=y, p=p, mins=mins, valid=valid, train=train,
+                extra=extra, cancel=cancel)
 
 
 D = load_everything()
@@ -160,6 +186,21 @@ with tab_flight:
             f"<div style='padding-top:12px'><span style='background:{colour};"
             f"color:white;padding:7px 16px;border-radius:6px;font-weight:600'>"
             f"{band}</span></div>", unsafe_allow_html=True)
+
+        # Severity detail: the tail is what the model predicts best.
+        ex = D["extra"]
+        if ex:
+            st.markdown("**If it goes badly**")
+            s1, s2, s3 = st.columns(3)
+            if "p90" in ex:
+                s1.metric("Reasonable worst case (P90)", f"{ex['p90'][i]:+.0f} min")
+            if "gt60" in ex:
+                s2.metric("Risk of >60 min (misconnection)", f"{ex['gt60'][i]:.0%}")
+            if "gt120" in ex:
+                s3.metric("Risk of >2 h", f"{ex['gt120'][i]:.0%}")
+            st.caption("Severe delays are predicted better than marginal ones: "
+                       "ROC-AUC rises from 0.716 on the >15 min tier to 0.793 "
+                       "on >2 h.")
 
         actual = float(row["arr_delay"])
         st.info(f"**Ground truth:** arrived {actual:+.0f} min "
@@ -275,15 +316,36 @@ the training period.
 
 **Held-out performance** ROC-AUC 0.716, PR-AUC 0.507 against a 25.0% base rate.
 At the cost-optimal threshold of 0.20: precision 47%, recall 49%. Ranking the
-riskiest 10% of flights gives 64% precision, a 2.6x lift.
+riskiest 10% of flights gives 64% precision, a 2.6x lift. XGBoost on the same
+features and an equal 40-draw budget reaches 0.513.
+
+**The worse the outcome, the better it is predicted**
+
+| Outcome | Base rate | ROC-AUC | Lift in riskiest 10% |
+|---|---|---|---|
+| Late > 15 min | 25.0% | 0.716 | 2.6x |
+| Late > 60 min | 7.4% | 0.770 | 4.1x |
+| Late > 120 min | 2.3% | 0.793 | 5.1x |
+| Cancelled | 2.3% | 0.936 | 8.0x |
+| Diverted | 0.3% | 0.608 | 2.0x |
+
+Ranking by cancellation risk puts 80% of all December cancellations in the top
+10% of the list. Diversion is the honest failure: it is decided in the air by
+conditions at the destination, and this dataset has weather for the three NYC
+origins only.
+
+**How far ahead it works** Replacing each flight's weather with the observation
+from *h* hours earlier — a persistence forecast, the crudest kind — costs
+almost nothing at three hours (PR-AUC 0.507 to 0.487, 86% of weather's
+contribution retained) and still retains 72% at six. At 24 hours it lands
+exactly on the no-weather floor.
 
 **Known limitations**
-- Cancelled and diverted flights are dropped, so operational disruption is
-  understated.
 - December is systematically under-predicted; a rolling 14-day recalibration
   cuts the Brier score from 0.180 to 0.170 and is the recommended fix.
-- Weather is the observation at the scheduled hour. Forecasting further ahead
-  would require replacing it with an actual forecast, which will be noisier.
+- Diversions are not predictable from NYC-origin features.
+- The horizon curve uses persistence, so it is a lower bound; a real forecast
+  feed would land above it, by an unknown margin.
 - Only NYC departures are recorded, so the true inbound leg of each aircraft is
   invisible and delay propagation is only partly observable.
 """)

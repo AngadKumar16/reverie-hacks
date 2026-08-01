@@ -838,12 +838,26 @@ including the observed departure delay, which lifts PR-AUC to 0.846 and
 answers a question nobody needs answered.
 
 **On what matters.** Weather dominates everything else by an order of
-magnitude. Feature construction beat model selection: logistic regression on
-good features beat the historical-rate rule by 0.138 PR-AUC, while gradient
-boosting on those same features beat logistic regression by only 0.029. Two
-independently tuned boosting libraries landed within 0.002 PR-AUC of each
-other, which
-suggests the ceiling here is the data, not the algorithm.
+magnitude — and a persistence forecast retains 86% of that value three hours
+out, so the system is deployable well before push-back rather than only at the
+gate. Feature construction beat model selection: logistic regression on good
+features beat the historical-rate rule by 0.138 PR-AUC, while gradient boosting
+on those same features beat logistic regression by only 0.029. XGBoost finishes
+0.006 ahead of LightGBM once both receive 40 draws and the same categorical
+representation — a gap that only appeared after the comparison was deliberately
+re-levelled, which says more about how library benchmarks are usually run than
+about either library.
+
+**On what is predictable.** The same pattern turned up in three independent
+experiments: **the worse the outcome, the better it is predicted.** ROC-AUC
+rises from 0.716 on the >15-minute tier to 0.793 on >120 minutes. The P90
+quantile head beats a constant by 16.4% where the P50 head manages 2.0%. And
+cancellation — the outcome originally discarded as unlabellable — reaches
+0.936, putting 80% of December's cancellations in the top decile of risk.
+Severe disruption has causes that are in the feature set; marginal lateness is
+mostly noise. A model built for this problem should be aimed at the tail, and
+the first version of our severity head failed precisely because it was aimed at
+the middle.
 
 **On method.** Three of our findings are about method rather than flights, and
 they are the ones most likely to transfer:

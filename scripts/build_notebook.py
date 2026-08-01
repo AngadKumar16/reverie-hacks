@@ -201,15 +201,86 @@ s = s.reindex(s.abs().sort_values(ascending=False).index[:8])
 s.index = [pretty(c) for c in s.index]
 s.to_frame("effect on log-odds").round(3)"""),
 
-    MD("""## 10. Try it interactively
+    MD("""## 10. The worse the outcome, the better it is predicted
+
+The clearest pattern in the project. It turned up three separate times."""),
+    CODE("""sev = json.load(open("../reports/metrics/severity_v2.json"))
+dis = json.load(open("../reports/metrics/disruption.json"))
+
+rows = []
+for k, label in [("gt15", "late > 15 min"), ("gt60", "late > 60 min"),
+                 ("gt120", "late > 120 min")]:
+    t = sev["tiers"][k]
+    rows.append({"outcome": label, "base rate": f"{t['base_rate']:.1%}",
+                 "ROC-AUC": round(t["roc_auc"], 3),
+                 "lift in riskiest 10%": f"{t['lift_at_10pct']:.1f}x"})
+for k, label in [("is_cancelled", "cancelled"), ("is_diverted", "diverted")]:
+    t = dis[k]
+    rows.append({"outcome": label, "base rate": f"{t['base_rate_test']:.1%}",
+                 "ROC-AUC": round(t["roc_auc"], 3),
+                 "lift in riskiest 10%": f"{t['lift_at_10pct']:.1f}x"})
+pd.DataFrame(rows).set_index("outcome")"""),
+
+    MD("""Severe disruption has causes that sit in the feature set — storms,
+closed runways, broken rotations. Marginal lateness is mostly noise. The
+cancellation model, trained on the 9,430 flights the main model *discarded* as
+unlabellable, is the strongest of the lot: it puts 80% of December's
+cancellations in the top 10% of the ranked list.
+
+Diversion is the honest failure. It is decided in the air by conditions at the
+destination, and this dataset has weather for the three NYC origins only."""),
+    CODE("""display(Image("../reports/figures/26_disruption_model.png"))"""),
+
+    MD("""### Quantile heads tell the same story
+
+The P90 head beats a constant by 16.4%; the P50 head manages 2.0%, i.e.
+nothing. The tail is predictable, the centre is not."""),
+    CODE("""q = sev["quantile"]
+pd.DataFrame({
+    k.upper(): {"pinball": round(v["pinball"], 3),
+                "constant baseline": round(v["pinball_constant_baseline"], 3),
+                "improvement": f"{v['pinball_improvement_pct']:.1f}%",
+                "coverage": f"{v['coverage']:.3f} (target {v['coverage_target']:.2f})"}
+    for k, v in q.items()})"""),
+
+    MD("""## 11. How far ahead does it work?
+
+Each flight is given the weather observation from *h* hours before its
+scheduled departure and the model retrained. That is a persistence forecast —
+the crudest kind — so the curve is a **lower bound** on a real forecast-fed
+model."""),
+    CODE("""hor = json.load(open("../reports/metrics/horizon.json"))
+abl = json.load(open("../reports/metrics/ablation.json"))
+floor = abl["weather"]["test_pr_auc"]
+h0 = hor["0"]["pr_auc"]
+
+pd.DataFrame([{
+    "horizon": f"{int(k)} h",
+    "PR-AUC": round(v["pr_auc"], 4),
+    "precision in riskiest 10%": f"{v['precision_at_10pct']:.1%}",
+    "weather value retained": f"{(v['pr_auc'] - floor) / (h0 - floor):.0%}",
+} for k, v in sorted(hor.items(), key=lambda kv: int(kv[0]))]).set_index("horizon")"""),
+
+    CODE("""display(Image("../reports/figures/25_forecast_horizon.png"))
+print(f"model trained with no weather at all: {floor:.4f}")
+print(f"model trained on 24-hour-old weather:  {hor['24']['pr_auc']:.4f}")"""),
+
+    MD("""Three hours costs 0.020 PR-AUC and keeps 86% of what weather
+contributes, so the system is deployable well before push-back. Twenty-four
+hours lands *exactly* on the no-weather floor — yesterday's weather at this
+hour is worth nothing, which is a built-in check that the experiment measures
+what it claims."""),
+
+    MD("""## 12. Try it interactively
 
 ```bash
 make app
 ```
 
-Single-flight risk with its explanation, an operations-desk view that ranks a
-whole day against a fixed alerting budget, and a model card with the
-limitations. Full write-up in `reports/report.md`."""),
+Single-flight risk with its explanation and a severity panel (P90 worst case,
+risk of >60 min and >2 h), an operations-desk view that ranks a whole day
+against a fixed alerting budget, and a model card with the limitations. Full
+write-up in `reports/report.md`."""),
 ]
 
 

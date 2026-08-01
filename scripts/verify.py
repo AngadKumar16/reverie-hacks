@@ -141,6 +141,9 @@ check("feature list hashes to the recorded fingerprint",
 print("\n=== 4. Report claims match the artefacts ===")
 
 abl = json.loads((METRICS / "ablation.json").read_text())
+hor = json.loads((METRICS / "horizon.json").read_text())
+dis = json.loads((METRICS / "disruption.json").read_text())
+sev = json.loads((METRICS / "severity_v2.json").read_text())
 shp = json.loads((METRICS / "shap_importance.json").read_text())
 eda = json.loads((METRICS / "eda_summary.json").read_text())
 
@@ -149,7 +152,7 @@ claims = {
     "pre-flight ROC-AUC 0.716": approx(ev["lightgbm"]["test"]["roc_auc"], 0.716, 5e-4),
     "gate PR-AUC 0.846": approx(ev["lightgbm_gate"]["test"]["pr_auc"], 0.846, 5e-4),
     "gate ROC-AUC 0.903": approx(ev["lightgbm_gate"]["test"]["roc_auc"], 0.903, 5e-4),
-    "xgboost PR-AUC 0.508": approx(ev["xgboost"]["test"]["pr_auc"], 0.508, 5e-4),
+
     "logistic PR-AUC 0.478": approx(ev["logistic_regression"]["test"]["pr_auc"], 0.478, 5e-4),
     "random forest PR-AUC 0.491": approx(ev["random_forest"]["test"]["pr_auc"], 0.491, 5e-4),
     "historical rule PR-AUC 0.340": approx(ev["historical_rate"]["test"]["pr_auc"], 0.340, 5e-4),
@@ -196,6 +199,58 @@ claims = {
         and approx(eda["late_rate_precipitating_vs_dry"]["dry"], 0.221, 5e-4)),
     "split sizes 217727 / 55628 / 53991": (
         len(train) == 217727 and len(valid) == 55628 and len(test) == 53991),
+
+    # --- equal-budget XGBoost comparison (report 5) ------------------
+    "xgboost PR-AUC 0.513 with equal budget": approx(
+        ev["xgboost"]["test"]["pr_auc"], 0.513, 5e-4),
+    "xgboost beats lightgbm on test": (
+        ev["xgboost"]["test"]["pr_auc"] > ev["lightgbm"]["test"]["pr_auc"]),
+
+    # --- severity tiers and quantiles (report 5.5) -------------------
+    "tier >60 min ROC-AUC 0.770": approx(sev["tiers"]["gt60"]["roc_auc"], 0.770, 1e-3),
+    "tier >120 min ROC-AUC 0.793": approx(sev["tiers"]["gt120"]["roc_auc"], 0.793, 1e-3),
+    "discrimination rises as the tier gets rarer": (
+        sev["tiers"]["gt15"]["roc_auc"] < sev["tiers"]["gt60"]["roc_auc"]
+        < sev["tiers"]["gt120"]["roc_auc"]),
+    "lift rises as the tier gets rarer": (
+        sev["tiers"]["gt15"]["lift_at_10pct"] < sev["tiers"]["gt60"]["lift_at_10pct"]
+        < sev["tiers"]["gt120"]["lift_at_10pct"]),
+    "P90 head beats a constant by 16.4%": approx(
+        sev["quantile"]["p90"]["pinball_improvement_pct"], 16.4, 0.2),
+    "P50 head barely beats a constant": (
+        sev["quantile"]["p50"]["pinball_improvement_pct"] < 3.0),
+    "conditional-on-late MAE improves 7.9%": approx(
+        sev["conditional"]["improvement_pct"], 7.9, 0.2),
+
+    # --- forecast horizon (report 5.6) -------------------------------
+    "horizon curve is monotone decreasing": all(
+        hor[str(a)]["pr_auc"] >= hor[str(b)]["pr_auc"]
+        for a, b in zip([0, 1, 2, 3, 6, 12], [1, 2, 3, 6, 12, 24])),
+    "3 h horizon retains 86% of weather's contribution": approx(
+        (hor["3"]["pr_auc"] - abl["weather"]["test_pr_auc"])
+        / (hor["0"]["pr_auc"] - abl["weather"]["test_pr_auc"]), 0.86, 0.01),
+    "6 h horizon retains 72%": approx(
+        (hor["6"]["pr_auc"] - abl["weather"]["test_pr_auc"])
+        / (hor["0"]["pr_auc"] - abl["weather"]["test_pr_auc"]), 0.72, 0.01),
+    "24 h horizon lands on the no-weather floor": abs(
+        hor["24"]["pr_auc"] - abl["weather"]["test_pr_auc"]) < 0.005,
+    "h=0 matches the main model": approx(
+        hor["0"]["pr_auc"], ev["lightgbm"]["test"]["pr_auc"], 1e-9),
+
+    # --- disruption / cancellations (report 5.7) ---------------------
+    "cancellation ROC-AUC 0.936": approx(dis["is_cancelled"]["roc_auc"], 0.936, 1e-3),
+    "cancellation catches 80% in the top decile": approx(
+        dis["is_cancelled"]["recall_at_10pct"], 0.800, 5e-3),
+    "cancellation is more predictable than lateness": (
+        dis["is_cancelled"]["roc_auc"] > ev["lightgbm"]["test"]["roc_auc"]),
+    "diversion is near-unpredictable": dis["is_diverted"]["roc_auc"] < 0.65,
+    "disruption model beats the late-only model": (
+        dis["is_disrupted"]["precision_at_10pct"] > ev["capacity"]["precision_at_k"]),
+    "all 336,776 flights modelled for disruption": (
+        dis["descriptives"]["n_flights_total"] == 336776),
+    "cancellation rate 4x higher in precipitation": (
+        dis["descriptives"]["cancellation_rate_precipitating"]
+        / dis["descriptives"]["cancellation_rate_dry"] > 3.5),
 }
 for name, ok in claims.items():
     check(name, ok)
@@ -203,7 +258,7 @@ for name, ok in claims.items():
 # ---------------------------------------------------------------------------
 print("\n=== 5. Deliverables present ===")
 
-expected_figs = 22
+expected_figs = 26
 figs = sorted((ROOT / "reports" / "figures").glob("*.png"))
 check(f"{expected_figs} figures generated", len(figs) == expected_figs, f"found {len(figs)}")
 for path in ["README.md", "reports/report.md", "reports/report.pdf",

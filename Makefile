@@ -1,5 +1,5 @@
 .PHONY: all setup data test eda train evaluate explain app clean reproduce \
-        report notebook verify
+        report notebook verify severity horizon disruption
 
 PY ?= python3
 
@@ -31,6 +31,18 @@ explain:
 	$(PY) -m src.explain --step shap
 	$(PY) -m src.explain --step ablation
 
+## Severity: tiers (>15/>60/>120 min), quantile heads, conditional-on-late.
+severity:
+	$(PY) -m src.severity --step all
+
+## How far ahead the model still works, using a persistence forecast.
+horizon:
+	$(PY) -m src.horizon
+
+## Three-outcome disruption model over all 336,776 flights.
+disruption:
+	$(PY) -m src.cancellations
+
 ## Typeset reports/report.md to PDF (needs pandoc + weasyprint).
 report:
 	$(PY) scripts/build_report_pdf.py
@@ -42,13 +54,13 @@ notebook:
 app:
 	$(PY) -m streamlit run app/streamlit_app.py
 
-## 51 checks: determinism, leakage in the shipped model, and every headline
+## 73 checks: determinism, leakage in the shipped model, and every headline
 ## number in the report re-read from the metrics files.
 verify:
 	$(PY) scripts/verify.py
 
 ## Full pipeline from a clean clone. ~15 minutes on 4 cores.
-reproduce: data test eda train evaluate explain verify
+reproduce: data test eda train evaluate explain severity horizon disruption verify
 	@echo "Done. Figures in reports/figures, metrics in reports/metrics."
 
 clean:

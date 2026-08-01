@@ -15,9 +15,11 @@ honest one, and it is the number this repository is built around.
 | **Data** | [NYC Flights 2013](https://www.kaggle.com/datasets/aephidayatuloh/nyc-flights-2013) — 336,776 flights, 327,346 labelled |
 | **Task** | Binary classification: arrival delay > 15 min (the FAA on-time definition) |
 | **Split** | Temporal — train Jan–Aug, validate Sep–Oct, test Nov–Dec |
-| **Best model** | LightGBM, 67 pre-flight features, 40-draw random search |
-| **Held-out result** | ROC-AUC **0.716**, PR-AUC **0.507** against a 25.0% base rate |
+| **Best model** | Gradient boosting, 67 pre-flight features, 40-draw random search per library |
+| **Held-out result** | ROC-AUC **0.716**, PR-AUC **0.507** (XGBoost 0.513) against a 25.0% base rate |
 | **Operational result** | Top 10% riskiest flights are **64% late** — a **2.6× lift** |
+| **Cancellations** | ROC-AUC **0.936** — top 10% catches **80% of all cancellations** |
+| **Horizon** | 3 h ahead costs 0.020 PR-AUC; 24 h ahead is worth nothing |
 
 ---
 
@@ -67,12 +69,15 @@ figure and metric quoted in the report. Each stage is also runnable on its own:
 
 ```bash
 make data       # build data/raw CSVs + cached feature splits
-make test       # 14 leakage and correctness checks — run these first
+make test       # 16 leakage and correctness checks — run these first
 make eda        # figures 01–07
 make train      # baselines + 40-draw random search + final fits (resumable)
 make evaluate   # figures 08–15, reports/metrics/evaluation.json
 make explain    # figures 16–22, SHAP + feature-family ablation
-make verify     # 51 checks — determinism, leakage, report-vs-artefact agreement
+make severity   # figures 23–24, severity tiers + quantile heads
+make horizon    # figure 25, forecast-horizon degradation curve
+make disruption # figure 26, cancellation / diversion / disruption models
+make verify     # 73 checks — determinism, leakage, report-vs-artefact agreement
 ```
 
 `make verify` is worth calling out. Beyond the unit tests it confirms that the
@@ -95,7 +100,7 @@ was deleted and the whole pipeline re-run from the raw tables:
 | Values that differed | **38 — every one a wall-clock `seconds` timing field** |
 | Differing values excluding timings | **0** |
 | All 40 LightGBM search draws | bit-identical CV scores |
-| All 8 XGBoost search draws | bit-identical CV scores |
+| All 8 XGBoost search draws (of the 8 run at the time) | bit-identical CV scores |
 | Parquet splits, `training_context`, RF / logistic / XGBoost pickles | byte-identical |
 | LightGBM booster SHA-256 | `32235056eebd…` before and after |
 
@@ -152,12 +157,15 @@ src/
   evaluate.py     held-out metrics, calibration, cost-based thresholds
   explain.py      SHAP attribution + feature-family ablation
   eda.py          exploratory figures
-tests/            14 leakage and correctness checks
+  severity.py     severity tiers, quantile heads, conditional-on-late
+  horizon.py      persistence-forecast horizon curve
+  cancellations.py  three-outcome disruption model over all 336,776 flights
+tests/            16 leakage and correctness checks
 app/              Streamlit demo
 notebooks/        end-to-end walkthrough
 reports/
   report.md       full methodology, results and analysis
-  figures/        22 generated figures
+  figures/        26 generated figures
   metrics/        every number in the report, as JSON/CSV
 ```
 
@@ -174,9 +182,43 @@ All figures are on the untouched Nov–Dec 2013 test period (53,991 flights,
 | Historical-rate rule | 0.340 | 0.621 | 0.182 |
 | Logistic regression | 0.478 | 0.708 | 0.166 |
 | Random forest | 0.491 | 0.713 | 0.164 |
-| **LightGBM (tuned)** | **0.507** | **0.716** | 0.167 |
-| XGBoost (tuned) | 0.508 | 0.716 | 0.167 |
+| LightGBM (tuned) | 0.507 | 0.716 | 0.167 |
+| **XGBoost (tuned)** | **0.513** | **0.719** | 0.168 |
 | *LightGBM, post-push-back* | *0.846* | *0.903* | *0.097* |
+
+### The worse the outcome, the better it is predicted
+
+The clearest pattern in the project, and it turned up in three independent
+experiments:
+
+| Outcome | Base rate | ROC-AUC | Lift in riskiest 10% |
+|---|---:|---:|---:|
+| Late > 15 min | 25.0% | 0.716 | 2.6× |
+| Late > 60 min | 7.4% | 0.770 | 4.1× |
+| Late > 120 min | 2.3% | 0.793 | 5.1× |
+| **Cancelled** | 2.3% | **0.936** | **8.0×** |
+| Diverted | 0.3% | 0.608 | 2.0× |
+
+Severe disruption has causes that are in the feature set — storms, closed
+runways, broken rotations. Marginal lateness is mostly noise. Ranking by
+cancellation risk puts **80% of all December cancellations in the top 10%** of
+the list. Diversion is the honest failure: it is decided in the air by
+conditions at the destination, which this dataset does not contain.
+
+### How far ahead it works
+
+Replacing each flight's weather with the observation from *h* hours earlier — a
+persistence forecast, the crudest kind, so a **lower bound** on a real
+forecast-fed model:
+
+| Horizon | 0 h | 1 h | 2 h | 3 h | 6 h | 12 h | 24 h |
+|---|---|---|---|---|---|---|---|
+| PR-AUC | 0.507 | 0.504 | 0.492 | 0.487 | 0.467 | 0.420 | 0.363 |
+| Weather value retained | 100% | 98% | 89% | 86% | 72% | 39% | 0% |
+
+A three-hour planning horizon is nearly free. Twenty-four hours lands exactly
+on the no-weather floor (0.3634 against 0.3640) — a built-in check that the
+experiment measures what it claims.
 
 Four findings the report develops:
 
