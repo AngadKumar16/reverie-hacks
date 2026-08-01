@@ -1,17 +1,8 @@
-08:18:06 INFO train (217727, 67)  valid (55628, 67)  |  67 pre-flight features
-08:18:06 INFO prior                valid PR-AUC 0.1505  ROC-AUC 0.5000  (0s)
-08:18:06 INFO historical_rate      valid PR-AUC 0.2278  ROC-AUC 0.6470  (0s)
-08:18:14 INFO logistic_regression  valid PR-AUC 0.3412  ROC-AUC 0.6995  (8s)
-08:18:35 INFO random_forest        valid PR-AUC 0.3650  ROC-AUC 0.7031  (21s)
-08:18:35 INFO --- randomised search, 40 draws x 3 forward-chained folds ---
-/sessions/amazing-eloquent-gauss/.local/lib/python3.10/site-packages/lightgbm/sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
-  eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
-/sessions/amazing-eloquent-gauss/.local/lib/python3.10/site-packages/lightgbm/sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
-  eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
-/sessions/amazing-eloquent-gauss/.local/lib/python3.10/site-packages/lightgbm/sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
-  eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
-08:18:42 INFO [ 1/40] PR-AUC 0.5290 (+/-0.0292)  AUC 0.7288  7s
-/sessions/amazing-eloquent-gauss/.local/lib/python3.10/site-packages/lightgbm/sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
-  eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
-/sessions/amazing-eloquent-gauss/.local/lib/python3.10/site-packages/lightgbm/sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
-  eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
+08:19:48 INFO train (217727, 67)  valid (55628, 67)  |  67 pre-flight features
+08:19:48 INFO prior                valid PR-AUC 0.1505  ROC-AUC 0.5000  (0s)
+08:19:48 INFO historical_rate      valid PR-AUC 0.2278  ROC-AUC 0.6470  (0s)
+08:19:57 INFO logistic_regression  valid PR-AUC 0.3412  ROC-AUC 0.6995  (9s)
+08:20:16 INFO random_forest        valid PR-AUC 0.3650  ROC-AUC 0.7031  (19s)
+08:20:16 INFO --- randomised search, 40 draws x 3 forward-chained folds ---
+08:20:22 INFO [ 1/40] PR-AUC 0.5290 (+/-0.0292)  AUC 0.7288  6s
+08:20:27 INFO [ 2/40] PR-AUC 0.5315 (+/-0.0352)  AUC 0.7305  5s
