@@ -1,0 +1,18 @@
+{
+  "lightgbm": {
+    "sha256": "32235056eebd03d3b282b7978154d4827610178d3d691b653b43142fe0e3d52c",
+    "n_trees": 391,
+    "n_features": 67
+  },
+  "lightgbm_gate": {
+    "sha256": "b406047bb2bb6457bdf3f578f78b19b91dcede0f93c978b2ccf9f40b31f9e946",
+    "n_trees": 313,
+    "n_features": 70
+  },
+  "lightgbm_severity": {
+    "sha256": "646029726ecef1d0564bc4fe11644fc304359dcfc5269cdf8380329c7c5a85b8",
+    "n_trees": 114,
+    "n_features": 67
+  },
+  "feature_list_sha256": "e1698cc9a04d45de96a7c83df324937fb394a439b7e1e31b059727905fa9d492"
+}

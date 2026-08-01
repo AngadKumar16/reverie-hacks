@@ -126,6 +126,17 @@ check("a fresh refit from the same seed reproduces the score",
       approx(ap_refit, reported_ap, 1e-9),
       f"{ap_refit:.6f}, {refit.best_iteration_} trees")
 
+# The joblib pickle is not byte-stable, but the booster's own model string is.
+# Hashing it gives a fingerprint that survives a full rebuild, so a reviewer can
+# confirm they reproduced the identical model rather than a similar-scoring one.
+fp = json.loads((METRICS / "model_fingerprints.json").read_text())
+refit_sha = hashlib.sha256(refit.booster_.model_to_string().encode()).hexdigest()
+check("the refit booster hashes to the recorded fingerprint",
+      refit_sha == fp["lightgbm"]["sha256"], refit_sha[:16] + "…")
+check("feature list hashes to the recorded fingerprint",
+      hashlib.sha256("\n".join(shipped).encode()).hexdigest()
+      == fp["feature_list_sha256"])
+
 # ---------------------------------------------------------------------------
 print("\n=== 4. Report claims match the artefacts ===")
 
@@ -216,4 +227,4 @@ if failures:
     for f in failures:
         print(f"  - {f}")
     sys.exit(1)
-print(f"All {len(claims) + 20} checks passed.")
+print(f"All {len(claims) + 22} checks passed.")

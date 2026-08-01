@@ -216,7 +216,38 @@ def step_final(train, valid, feats_a, feats_b, budget: Budget) -> bool:
     joblib.dump({"features_preflight": feats_a, "features_gate": feats_b,
                  "best_params": params, "seed": SEED},
                 MODELS / "training_context.joblib")
+    write_fingerprints()
     return True
+
+
+def write_fingerprints() -> None:
+    """Record a stable checksum of each booster.
+
+    A joblib pickle of an LGBMClassifier is *not* byte-stable across runs even
+    when training is fully deterministic -- the container carries incidental
+    state. The booster's own model string is stable, so hashing that gives a
+    fingerprint anyone can compare after a rebuild to confirm they got the
+    identical model rather than merely a similar-scoring one.
+    """
+    import hashlib
+
+    out = {}
+    for name in ["lightgbm", "lightgbm_gate", "lightgbm_severity"]:
+        path = MODELS / f"{name}.joblib"
+        if not path.exists():
+            continue
+        model = joblib.load(path)
+        text = model.booster_.model_to_string()
+        out[name] = {
+            "sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "n_trees": int(model.best_iteration_ or 0),
+            "n_features": int(model.n_features_),
+        }
+    ctx = joblib.load(MODELS / "training_context.joblib")
+    out["feature_list_sha256"] = hashlib.sha256(
+        "\n".join(ctx["features_preflight"]).encode()).hexdigest()
+    (METRICS / "model_fingerprints.json").write_text(json.dumps(out, indent=2))
+    log.info("wrote model fingerprints")
 
 
 # ---------------------------------------------------------------------------

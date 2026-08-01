@@ -77,11 +77,38 @@ make verify     # 51 checks — determinism, leakage, report-vs-artefact agreeme
 
 `make verify` is worth calling out. Beyond the unit tests it confirms that the
 feature pipeline rebuilds bit-identically from the raw tables, that a fresh
-refit from the same seed reproduces the reported score to six decimals, that
-scrambling every post-departure column leaves the shipped model's predictions
-*exactly* unchanged, and that **every headline number in the report is re-read
-from the metrics files and compared** — so the prose cannot drift away from the
-results.
+refit from the same seed reproduces the reported score to six decimals and
+hashes to the recorded booster fingerprint, that scrambling every
+post-departure column leaves the shipped model's predictions *exactly*
+unchanged, and that **every headline number in the report is re-read from the
+metrics files and compared** — so the prose cannot drift away from the results.
+
+### Reproducibility, actually tested
+
+Claiming determinism is cheap, so this was measured. Every generated artefact
+(`data/raw`, `data/processed`, `models`, `reports/figures`, `reports/metrics`)
+was deleted and the whole pipeline re-run from the raw tables:
+
+| Check | Result |
+|---|---|
+| Leaf values across all metric JSON files | **1,153 compared, 1,115 identical** |
+| Values that differed | **38 — every one a wall-clock `seconds` timing field** |
+| Differing values excluding timings | **0** |
+| All 40 LightGBM search draws | bit-identical CV scores |
+| All 8 XGBoost search draws | bit-identical CV scores |
+| Parquet splits, `training_context`, RF / logistic / XGBoost pickles | byte-identical |
+| LightGBM booster SHA-256 | `32235056eebd…` before and after |
+
+One honest caveat: a joblib pickle of an `LGBMClassifier` is *not* byte-stable
+even when training is fully deterministic — the container carries incidental
+state. The booster's own serialised model string **is** stable, so
+`reports/metrics/model_fingerprints.json` records its SHA-256 and `make verify`
+checks it. That is the checksum to compare after a rebuild.
+
+Determinism holds on identical library versions (pinned in
+`requirements.txt`). Different LightGBM or NumPy builds may shift the last
+decimal places; the `approx` tolerances in `scripts/verify.py` are set for the
+pinned versions.
 
 Training is checkpointed: `make train` can be interrupted and re-run without
 losing progress, and re-running a completed step is a no-op.
