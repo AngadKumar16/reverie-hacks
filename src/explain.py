@@ -257,13 +257,75 @@ def step_shap(sample_size: int = 20000) -> None:
                 bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
+    # --- level shifters vs discriminators ------------------------------
+    stats = _fig_level_vs_rank(sv, X, train)
+
     SHAP_FILE.write_text(json.dumps({
         "n_sample": int(len(X)),
         "mean_abs_shap": {k: float(v) for k, v in order.items()},
         "group_share": {k: float(v / total) for k, v in
                         sorted(grouped.items(), key=lambda kv: -kv[1])},
+        "out_of_range_features": stats,
     }, indent=2))
-    log.info("wrote SHAP figures 16-20")
+    log.info("wrote SHAP figures 16-20, 22")
+
+
+def _fig_level_vs_rank(sv: np.ndarray, X: pd.DataFrame,
+                       train: pd.DataFrame) -> Dict:
+    """Separate features that shift the level from features that rank flights.
+
+    Mean |SHAP| -- the standard importance bar chart -- sums two very different
+    behaviours. A feature whose test values sit entirely outside the training
+    range gets pushed into the model's last bin for *every* test flight and
+    contributes a large but nearly constant offset: it moves calibration and
+    does nothing for discrimination. A feature that varies flight to flight is
+    what actually produces ranking. Plotting the mean against the standard
+    deviation of the SHAP values separates the two.
+    """
+    mean_signed = sv.mean(axis=0)
+    sd = sv.std(axis=0)
+    names = list(X.columns)
+
+    # Which numeric features are extrapolating beyond what training ever saw?
+    out_of_range = {}
+    for c in names:
+        if c not in train.columns or str(X[c].dtype) == "category":
+            continue
+        tr_lo, tr_hi = train[c].min(), train[c].max()
+        xs = pd.to_numeric(X[c], errors="coerce")
+        share = float(((xs < tr_lo) | (xs > tr_hi)).mean())
+        if share > 0.5:
+            out_of_range[c] = {
+                "share_of_test_outside_training_range": share,
+                "train_range": [float(tr_lo), float(tr_hi)],
+                "test_range": [float(xs.min()), float(xs.max())],
+                "mean_shap": float(mean_signed[names.index(c)]),
+                "sd_shap": float(sd[names.index(c)]),
+            }
+
+    fig, ax = plt.subplots(figsize=(12, 8.5))
+    flagged = np.array([c in out_of_range for c in names])
+    ax.scatter(sd[~flagged], np.abs(mean_signed)[~flagged], s=70,
+               color="#3b6978", label="within training range")
+    ax.scatter(sd[flagged], np.abs(mean_signed)[flagged], s=120,
+               color="#c44e52", label="test values outside training range")
+    lim = max(sd.max(), np.abs(mean_signed).max()) * 1.08
+    ax.plot([0, lim], [0, lim], ls=":", color="grey")
+
+    interesting = np.argsort(-(np.abs(mean_signed) + sd))[:12]
+    for i in interesting:
+        ax.annotate(pretty(names[i]), (sd[i], abs(mean_signed[i])),
+                    textcoords="offset points", xytext=(7, 5), fontsize=10)
+    ax.set_xlabel("SD of SHAP value  ->  separates flights (drives AUC)")
+    ax.set_ylabel("|mean SHAP value|  ->  shifts every prediction (drives calibration)")
+    ax.set_title("Not all 'important' features are useful\n"
+                 "Points far above the diagonal move the level without ranking anything",
+                 fontsize=14)
+    ax.legend(fontsize=11)
+    fig.savefig(FIGURES / "22_level_vs_ranking.png", dpi=150,
+                bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return out_of_range
 
 
 # ---------------------------------------------------------------------------

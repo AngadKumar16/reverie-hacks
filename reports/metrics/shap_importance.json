@@ -77,5 +77,46 @@
     "congestion": 0.04250888549966559,
     "rotation": 0.031363041080298575,
     "aircraft": 0.013456714189216382
+  },
+  "out_of_range_features": {
+    "month": {
+      "share_of_test_outside_training_range": 1.0,
+      "train_range": [
+        1.0,
+        8.0
+      ],
+      "test_range": [
+        11.0,
+        12.0
+      ],
+      "mean_shap": 0.00412952409886954,
+      "sd_shap": 0.008575610833067583
+    },
+    "day_of_year": {
+      "share_of_test_outside_training_range": 1.0,
+      "train_range": [
+        1.0,
+        243.0
+      ],
+      "test_range": [
+        305.0,
+        365.0
+      ],
+      "mean_shap": -0.34901030529689175,
+      "sd_shap": 0.1094147961043784
+    },
+    "week_of_year": {
+      "share_of_test_outside_training_range": 0.96745,
+      "train_range": [
+        1.0,
+        35.0
+      ],
+      "test_range": [
+        1.0,
+        52.0
+      ],
+      "mean_shap": -0.05886469709642573,
+      "sd_shap": 0.024044662737128325
+    }
   }
 }
