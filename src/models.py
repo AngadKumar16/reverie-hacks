@@ -139,15 +139,36 @@ LGBM_SEARCH_SPACE = {
     "min_split_gain": [0.0, 0.01, 0.05],
 }
 
+# Deliberately mirrors LGBM_SEARCH_SPACE: nine dimensions, matched ranges, and
+# `grow_policy="lossguide"` with `max_leaves` so XGBoost grows trees the same
+# leaf-wise way LightGBM does. Without that the two libraries are being asked
+# to solve slightly different problems and "XGBoost scored lower" would be a
+# statement about tree-growth policy rather than about the library.
 XGB_SEARCH_SPACE = {
-    "max_depth": [4, 6, 8, 10],
-    "learning_rate": [0.02, 0.05, 0.08],
-    "subsample": [0.6, 0.8, 1.0],
-    "colsample_bytree": [0.6, 0.8, 1.0],
-    "min_child_weight": [1, 5, 20, 50],
-    "reg_lambda": [0.5, 2.0, 10.0],
-    "reg_alpha": [0.0, 0.5, 2.0],
+    "max_leaves": [31, 63, 95, 127, 191, 255],
+    "learning_rate": [0.02, 0.03, 0.05, 0.08],
+    "min_child_weight": [1, 5, 20, 50, 100],
+    "colsample_bytree": [0.6, 0.7, 0.8, 0.9, 1.0],
+    "subsample": [0.6, 0.7, 0.8, 0.9, 1.0],
+    "reg_alpha": [0.0, 0.1, 1.0, 5.0],
+    "reg_lambda": [0.0, 0.5, 2.0, 10.0],
+    "max_depth": [0, 6, 8, 10, 14],   # 0 = unlimited under lossguide
+    "gamma": [0.0, 0.01, 0.05],
 }
+
+XGB_FIXED = dict(
+    n_estimators=3000,
+    tree_method="hist",
+    grow_policy="lossguide",
+    # XGBoost 2.0+ handles pandas `category` dtype natively, exactly as
+    # LightGBM does. The earlier one-hot expansion was both slower and a
+    # different -- worse -- representation than the one LightGBM was given.
+    enable_categorical=True,
+    max_cat_to_onehot=1,
+    eval_metric="aucpr",
+    n_jobs=N_JOBS,
+    random_state=SEED,
+)
 
 LGBM_FIXED = dict(
     objective="binary",

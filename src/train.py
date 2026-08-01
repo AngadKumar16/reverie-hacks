@@ -50,11 +50,10 @@ log = logging.getLogger(__name__)
 SEARCH_FILE = METRICS / "lgbm_search.json"
 XGB_SEARCH_FILE = METRICS / "xgb_search.json"
 N_SEARCH_DRAWS = 40
-# XGBoost is a cross-check on the LightGBM result, not a competitor with an
-# equal budget: 8 draws is enough to confirm the two libraries land in the same
-# place, and each XGBoost fit costs ~4x a LightGBM fit because the categorical
-# features have to be one-hot expanded first.
-N_XGB_DRAWS = 8
+# Equal budget: XGBoost gets the same 40 draws over a matched nine-dimensional
+# space, so "the two libraries agree" is a claim about the libraries and not
+# about how much search each was given.
+N_XGB_DRAWS = 40
 
 
 class Budget:
@@ -255,13 +254,8 @@ def write_fingerprints() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _onehot(X: pd.DataFrame) -> pd.DataFrame:
-    return pd.get_dummies(X, columns=[c for c in CATEGORICAL_FEATURES
-                                      if c in X.columns], dummy_na=True)
-
-
 def step_xgb_search(X, y, budget: Budget, n_splits: int = 3) -> bool:
-    Xn = _onehot(X)
+    Xn = X
     candidates = list(ParameterSampler(M.XGB_SEARCH_SPACE, n_iter=N_XGB_DRAWS,
                                        random_state=SEED))
     done = _load_json(XGB_SEARCH_FILE, [])
@@ -274,9 +268,8 @@ def step_xgb_search(X, y, budget: Budget, n_splits: int = 3) -> bool:
         params = candidates[i]
         fold_ap, best_iters = [], []
         for tr_idx, va_idx in splitter.split(Xn):
-            model = XGBClassifier(n_estimators=2000, tree_method="hist",
-                                  eval_metric="aucpr", early_stopping_rounds=100,
-                                  n_jobs=N_JOBS, random_state=SEED, **params)
+            model = XGBClassifier(**M.XGB_FIXED, early_stopping_rounds=100,
+                                  **params)
             model.fit(Xn.iloc[tr_idx], y[tr_idx],
                       eval_set=[(Xn.iloc[va_idx], y[va_idx])], verbose=False)
             fold_ap.append(average_precision_score(

@@ -90,12 +90,9 @@ def _save(fig, name: str) -> None:
 
 
 def predict(name: str, model, X: pd.DataFrame) -> np.ndarray:
-    if name == "xgboost":
-        cols = joblib.load(MODELS / "xgboost_columns.joblib")
-        Xn = pd.get_dummies(X, columns=[c for c in CATEGORICAL_FEATURES
-                                        if c in X.columns], dummy_na=True)
-        Xn = Xn.reindex(columns=cols, fill_value=0)
-        return model.predict_proba(Xn)[:, 1]
+    # Every estimator now consumes the same frame: LightGBM and XGBoost both
+    # take pandas `category` dtypes natively, and the sklearn pipelines encode
+    # internally.
     return model.predict_proba(X)[:, 1]
 
 
