@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>FlightRisk NYC</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">FlightRisk NYC</h1>
+</header>
+<h1 id="flightrisk-nyc">FlightRisk NYC</h1>
+<h3 id="predicting-arrival-delay-before-the-aircraft-moves">Predicting arrival delay before the aircraft moves</h3>
+<p><strong>Datathon technical report — NYC Flights 2013</strong></p>
+<hr />
+<h2 id="1-the-problem-and-why-the-usual-version-of-it-is-too-easy">1. The problem, and why the usual version of it is too easy</h2>
+<p>An airline operations desk wants to know, at the moment a flight is scheduled to depart, whether it will land more than fifteen minutes late. Fifteen minutes is not an arbitrary cutoff: it is the US Bureau of Transportation Statistics definition of an on-time arrival, so it is the number airlines are measured on and the number that decides whether a connection holds.</p>
+<p>The prediction is only worth anything if it arrives before the decisions do. Once the aircraft has pushed back, the crew is committed, the gate is reassigned, and the passenger with a 55-minute connection is already airborne. So we fix the decision point at the <strong>scheduled departure time, before push-back</strong>, and allow the model nothing that is determined after it.</p>
+<p>That constraint is the whole project, because it is the one most published treatments of this dataset drop. <code>dep_delay</code> — how many minutes late the aircraft actually left — is sitting in the flights table, correlates with arrival delay at ρ ≈ 0.9, and turns the problem into near-arithmetic. A model using it scores ROC-AUC above 0.90 and is operationally worthless, because by the time you know <code>dep_delay</code> you no longer need a prediction.</p>
+<p>We did not simply exclude it. We trained both models and measured the gap, which turns out to be the most informative single number in the study:</p>
+<table>
+<thead>
+<tr class="header">
+<th>Decision point</th>
+<th>PR-AUC</th>
+<th>ROC-AUC</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Pre-push-back (deployable)</td>
+<td>0.507</td>
+<td>0.716</td>
+</tr>
+<tr class="even">
+<td>Post-push-back (adds <code>dep_delay</code>)</td>
+<td>0.846</td>
+<td>0.903</td>
+</tr>
+</tbody>
+</table>
+<p>Two thirds of the apparent skill of a "flight delay model" is the observation that the plane left late. What remains — the 0.507 — is the part that is genuinely forecastable in advance, and it is the subject of this report.</p>
+<hr />
+<h2 id="2-data">2. Data</h2>
+<p><strong>Source.</strong> NYC Flights 2013, available on Kaggle at <a href="https://www.kaggle.com/datasets/aephidayatuloh/nyc-flights-2013">https://www.kaggle.com/datasets/aephidayatuloh/nyc-flights-2013</a> and canonically as the <code>nycflights13</code> R package (<a href="https://github.com/tidyverse/nycflights13">https://github.com/tidyverse/nycflights13</a>). Five tables, all tracing back to US Bureau of Transportation Statistics on-time records, the FAA aircraft registry, and ASOS/NOAA hourly weather observations.</p>
+<table>
+<thead>
+<tr class="header">
+<th>Table</th>
+<th style="text-align: right;">Rows</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>flights</code></td>
+<td style="text-align: right;">336,776</td>
+<td>one row per departure from EWR, JFK or LGA in 2013</td>
+</tr>
+<tr class="even">
+<td><code>weather</code></td>
+<td style="text-align: right;">26,115</td>
+<td>hourly observations at the three origin airports</td>
+</tr>
+<tr class="odd">
+<td><code>planes</code></td>
+<td style="text-align: right;">3,322</td>
+<td>aircraft registry keyed on tail number</td>
+</tr>
+<tr class="even">
+<td><code>airports</code></td>
+<td style="text-align: right;">1,458</td>
+<td>coordinates, elevation, timezone</td>
+</tr>
+<tr class="odd">
+<td><code>airlines</code></td>
+<td style="text-align: right;">16</td>
+<td>carrier code to name</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Labelling.</strong> 9,430 flights (2.8%) have no arrival delay because they were cancelled or diverted. They cannot carry an "arrived late" label and were removed, leaving <strong>327,346 labelled flights</strong>, of which <strong>23.7% are late</strong>.</p>
+<p>This is a real limitation and we flag it rather than bury it. Cancellations are the most disruptive outcome of all, and they are not randomly distributed — they cluster in exactly the storm-and-holiday conditions the model is supposed to warn about. Dropping them understates operational disruption and makes the December test period look milder than it was. A production system should model this as three outcomes (on time / late / cancelled), not two.</p>
+<h3 id="21-what-the-data-looks-like">2.1 What the data looks like</h3>
+<p><img src="figures/01_target_distribution.png" alt="Target distribution" /></p>
+<p>Arrival delay is sharply peaked and heavily right-skewed. The median flight arrives <strong>5 minutes early</strong>; the 90th percentile is <strong>+52 minutes</strong> and the 99th is <strong>+190 minutes</strong>. Because the distribution has so much mass just below the threshold, the 15-minute cutoff sits on a steep part of the curve — small shifts in conditions move a lot of flights across the line, which is precisely why the problem is learnable at all.</p>
+<p>Class balance is a manageable 3:1. That is imbalanced enough that ROC-AUC flatters the model and accuracy is meaningless (a model predicting "on time" for everything scores 76%), so <strong>PR-AUC is the headline metric throughout</strong>.</p>
+<p><img src="figures/02_temporal_patterns.png" alt="Temporal patterns" /></p>
+<p>Three temporal structures, all strong:</p>
+<ul>
+<li><strong>Month.</strong> 13.2% late in September, 32.6% in December — a factor of 2.5. June and July are nearly as bad as December, for a different reason (thunderstorms rather than winter weather plus holiday load).</li>
+<li><strong>Hour.</strong> 10% for the 05:00 departure bank, rising monotonically to 37% by 21:00. This is delay propagation made visible: the network starts each day clean and accumulates lateness.</li>
+<li><strong>Weekday.</strong> Saturday is the quiet day at 17%; Thursday the worst at 27.5%.</li>
+</ul>
+<p><img src="figures/03_carrier_and_airport.png" alt="Carrier and airport" /></p>
+<p>Carrier effects span a factor of three, from Hawaiian at 12.6% to Frontier at 37.3%, though the extremes are thin-volume operators. Among the large carriers the spread is still wide: Delta 18.2% against ExpressJet 31.4%. Newark is the worst of the three airports (25.6%) and LaGuardia the best (22.4%), but the airport effect is small next to the hour-of-day effect.</p>
+<p><img src="figures/04_weather_effects.png" alt="Weather" /></p>
+<p>Weather at the origin is the strongest single driver visible in the raw data. Dry hours run 22.1% late; hours with any precipitation run <strong>47.7%</strong>. Heavy precipitation reaches 57%. Visibility below 3 miles doubles the rate from 22.9% to 45.5%. Wind gusts matter but less dramatically — 19% below 10 mph, 31% above 30 mph.</p>
+<p><img src="figures/05_operational_drivers.png" alt="Operational drivers" /></p>
+<p>The operational panel is where the feature engineering earns its keep, and it also contains a mistake we made and corrected — see §3.3.</p>
+<h3 id="22-data-quality-issues-found-and-handled">2.2 Data quality issues found and handled</h3>
+<ul>
+<li><strong>Impossible wind speeds.</strong> The ASOS feed contains a 1,048 mph reading and several other physically impossible values. Clipped at 60 mph (gusts at 90) rather than dropped, so the hour survives for its other variables.</li>
+<li><strong>Missing wind gusts.</strong> Recorded only when gusting; filled with the sustained wind speed, which is the correct physical default.</li>
+<li><strong>Unmatched weather hours.</strong> 0.47% of flights have no observation at their scheduled hour. Filled with the origin-and-month median.</li>
+<li><strong>Unmatched aircraft.</strong> 16.3% of tail numbers are absent from the FAA registry. Left as missing rather than imputed — LightGBM learns a missing-value direction natively, and "this airframe is not in the registry" is itself weakly informative.</li>
+<li><strong>Timezone correctness.</strong> Scheduled block time cannot be computed by subtracting two clock times, because arrival is in the destination's timezone. <code>tests/test_features.py</code> verifies that the corrected block time exceeds actual air time by a median of 31 minutes (plausible taxi) and that JFK–LAX comes out near six hours rather than three or nine.</li>
+</ul>
+<hr />
+<h2 id="3-feature-engineering">3. Feature engineering</h2>
+<p>67 features in the deployable configuration, in seven families. The organising question for every one of them was: <em>does this quantity exist, in this form, at the scheduled departure time?</em></p>
+<h3 id="31-the-three-kinds-of-information-and-which-are-legitimate">3.1 The three kinds of information, and which are legitimate</h3>
+<p><strong>Published-schedule facts</strong> are known months ahead and cannot leak. Congestion counts fall here: how many flights are <em>scheduled</em> to leave Newark in this hour, how many share this 15-minute slot, what share of the slot belongs to this carrier. We compute these over the whole calendar year, including the test period, and that is correct — the timetable for December was published in advance and contains no information about December outcomes.</p>
+<p><strong>Contemporaneous observations</strong> exist at the decision point. Origin weather at the scheduled hour qualifies, along with rolling 3- and 6-hour precipitation totals, minimum visibility, maximum gust and pressure tendency, all of which look strictly backwards.</p>
+<p><strong>Outcome-derived statistics</strong> must be fitted on the training period only. Eight smoothed historical late rates (by carrier, destination, route, tail number, origin × hour, carrier × destination, destination × hour, carrier × hour) use Bayesian shrinkage toward the global prior with m = 50 pseudo-flights, so a route flown twenty times does not get a confident rate.</p>
+<p>Inside the training period these encodings are computed <strong>out-of-fold</strong> across five folds. This is not a formality. <code>tailnum</code> has roughly 4,000 levels; an in-fold encoding would let each flight's own label into its own feature and the model would memorise the training set. The test suite asserts that <code>te_tailnum</code> alone reaches an AUC between 0.50 and 0.62 — a leaked version would approach 1.0.</p>
+<h3 id="32-a-target-encoding-we-had-to-throw-away">3.2 A target encoding we had to throw away</h3>
+<p>Our first encoding set included a <code>destination × month</code> key. It looked excellent in training. It is worthless at deployment, and the reason is structural: with a temporal split, <strong>no test month ever appears in the training period</strong>, so every test row falls back to the global prior. A feature that is informative in training and constant in production is not merely useless, it actively displaces capacity the model could have spent on something that generalises.</p>
+<p>The general rule we adopted: <strong>any encoding key must be recurrent across the split boundary.</strong> <code>dest × hour</code> is fine because December has the same 24 hours as January. <code>dest × month</code> is not. A test in the suite now enforces this by asserting that fewer than half of test rows fall back to the prior for any encoding.</p>
+<h3 id="33-aircraft-rotation-a-feature-we-got-wrong-first">3.3 Aircraft rotation: a feature we got wrong first</h3>
+<p>Delay propagation is the dominant mechanism in airline operations — a late inbound aircraft makes the next departure late — so we wanted a turnaround feature. The first attempt computed, per tail number, the gap between the previous leg's scheduled arrival and this departure.</p>
+<p>The EDA figure exposed the error immediately: flights with a "turnaround" under 45 minutes were 81% late, but there were only 186 of them, and several had <em>negative</em> turnarounds. The bug is conceptual. <strong>This dataset records only flights departing NYC.</strong> An aircraft that leaves JFK for Miami must fly back to New York before it can leave again, and that return leg is invisible. The gap we measured spans an entire unobserved round trip, so a "45-minute turnaround" was a data artefact, not a tight turn.</p>
+<p>The fix subtracts the previous leg's scheduled block time as an estimate of the unobserved return, leaving the genuine schedule slack:</p>
+<pre><code>rotation_slack_min = (sched_dep − prev_sched_arr) − prev_sched_block
+</code></pre>
+<p>The corrected feature behaves like a real operational quantity:</p>
+<table>
+<thead>
+<tr class="header">
+<th>Schedule slack</th>
+<th style="text-align: right;">Late rate</th>
+<th style="text-align: right;">n</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>negative (impossible timetable)</td>
+<td style="text-align: right;"><strong>79%</strong></td>
+<td style="text-align: right;">1,620</td>
+</tr>
+<tr class="even">
+<td>0–45 min</td>
+<td style="text-align: right;">51%</td>
+<td style="text-align: right;">3,928</td>
+</tr>
+<tr class="odd">
+<td>45–90 min</td>
+<td style="text-align: right;">29%</td>
+<td style="text-align: right;">36,282</td>
+</tr>
+<tr class="even">
+<td>90–180 min</td>
+<td style="text-align: right;">27%</td>
+<td style="text-align: right;">27,054</td>
+</tr>
+<tr class="odd">
+<td>180 min+</td>
+<td style="text-align: right;">35%</td>
+<td style="text-align: right;">9,878</td>
+</tr>
+</tbody>
+</table>
+<p>Monotone across the operationally meaningful range, with a sensible uptick at the long tail (very long gaps mean the airframe sat idle through a disrupted day). We kept the mistake in the report because the diagnosis — <em>the data generating process does not contain what I assumed it did</em> — is the lesson.</p>
+<p>The same reasoning constrains the post-push-back mode: the inbound arrival delay is only used when the previous leg is same-day <strong>and</strong> its actual arrival preceded our scheduled departure. A test verifies this holds for every flagged row.</p>
+<h3 id="34-the-seven-families">3.4 The seven families</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Family</th>
+<th style="text-align: right;">n</th>
+<th>Examples</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Weather</td>
+<td style="text-align: right;">17</td>
+<td>precipitation and 3/6-hour totals, visibility and 3-hour minimum, wind gust and 3-hour maximum, pressure tendency, temperature, humidity</td>
+</tr>
+<tr class="even">
+<td>Historical rates</td>
+<td style="text-align: right;">8</td>
+<td>smoothed out-of-fold late rates by carrier, route, airframe, origin × hour</td>
+</tr>
+<tr class="odd">
+<td>Calendar</td>
+<td style="text-align: right;">12</td>
+<td>month, day of week, day of year, holiday window, departure hour (raw and cyclical), red-eye flag</td>
+</tr>
+<tr class="even">
+<td>Route &amp; schedule</td>
+<td style="text-align: right;">11</td>
+<td>distance, scheduled block time, block time versus route median, implied speed, destination coordinates and elevation</td>
+</tr>
+<tr class="odd">
+<td>Congestion</td>
+<td style="text-align: right;">7</td>
+<td>departures from the origin in the hour and 15-minute slot, carrier share of the slot, system-wide NYC departures</td>
+</tr>
+<tr class="even">
+<td>Rotation</td>
+<td style="text-align: right;">5</td>
+<td>schedule slack, gap since previous NYC leg, tight-turn flag, leg number of the day</td>
+</tr>
+<tr class="odd">
+<td>Aircraft</td>
+<td style="text-align: right;">6</td>
+<td>age, seats, engines, engine type, manufacturer, airframe class</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-experimental-design">4. Experimental design</h2>
+<h3 id="41-the-split-is-temporal-and-deliberately-unkind">4.1 The split is temporal, and deliberately unkind</h3>
+<p>Train <strong>Jan–Aug</strong> (217,727 flights), validate <strong>Sep–Oct</strong> (55,628), test <strong>Nov–Dec</strong> (53,991). Never random.</p>
+<p>A random split would let the model see flights that happen <em>after</em> the ones it is scored on, and with congestion and weather shared across flights in the same hour, neighbouring rows are close to duplicates. Random-split scores on this dataset are inflated and not comparable to ours.</p>
+<p>The temporal split is uncomfortable by construction, and we chose it anyway:</p>
+<table>
+<thead>
+<tr class="header">
+<th>Period</th>
+<th>Late rate</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Train (Jan–Aug)</td>
+<td>25.6%</td>
+</tr>
+<tr class="even">
+<td>Validation (Sep–Oct)</td>
+<td><strong>15.1%</strong></td>
+</tr>
+<tr class="odd">
+<td>Test (Nov–Dec)</td>
+<td><strong>25.0%</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Validation sits at a base rate ten points below both neighbours, because September and October 2013 were unusually smooth. This is exactly the situation a deployed model faces — you tune on the recent past and deploy into a future that does not resemble it — and it produces the most interesting result in the study (§6).</p>
+<h3 id="42-hyperparameter-search">4.2 Hyperparameter search</h3>
+<p>40 random draws over nine LightGBM hyperparameters, each scored by PR-AUC on a <strong>forward-chaining three-fold time-series split inside the training period</strong>: fold <em>k</em> trains on the earliest months and scores the block that follows, never the reverse. Early stopping at 100 rounds within each fold.</p>
+<p>Random search rather than grid: with nine interacting dimensions, a grid of 40 points would pin each dimension to one or two values, whereas 40 random draws give 40 distinct values per dimension.</p>
+<p>The validation block was deliberately excluded from the search and reserved for early stopping, calibration and threshold selection, so that <strong>the test set was scored exactly once, at the end</strong>.</p>
+<p>Search spread was narrow — best 0.5376, median 0.5328, worst 0.5258 across 40 draws. The problem is not hyperparameter-sensitive, which is itself worth knowing: effort spent on features paid far better than effort spent on tuning.</p>
+<p>Selected configuration:</p>
+<pre><code>num_leaves 191 · max_depth 8 · learning_rate 0.02 · min_child_samples 100
+feature_fraction 0.7 · bagging_fraction 0.9 · lambda_l1 5.0 · lambda_l2 2.0
+min_split_gain 0.05 · 391 trees at early stopping
+</code></pre>
+<p>Fold scores 0.490 / 0.560 / 0.563 — the first fold is meaningfully harder, reflecting how much less history it trains on.</p>
+<h3 id="43-baselines">4.3 Baselines</h3>
+<p>Four, each answering a different objection:</p>
+<ol>
+<li><strong>Base rate</strong> — predicts the training prior for everything. ROC-AUC 0.500 by construction; the floor.</li>
+<li><strong>Historical-rate rule</strong> — what an operations analyst writes without machine learning: look up how often this carrier flew this route at this hour and was late. Built from the same smoothed encodings the model gets, so it is a fair comparison rather than a strawman.</li>
+<li><strong>Logistic regression</strong> — median imputation, standardisation, one-hot with rare levels pooled. Tests whether the problem needs non-linearity.</li>
+<li><strong>Random forest</strong> — capped at 150 trees, depth 14. Tests whether it needs <em>boosting</em> specifically.</li>
+</ol>
+<hr />
+<h2 id="5-results">5. Results</h2>
+<p>All numbers on the untouched Nov–Dec test period: 53,991 flights, 25.0% late.</p>
+<table>
+<thead>
+<tr class="header">
+<th>Model</th>
+<th style="text-align: right;">PR-AUC</th>
+<th style="text-align: right;">ROC-AUC</th>
+<th style="text-align: right;">Brier</th>
+<th style="text-align: right;">Log loss</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Base rate</td>
+<td style="text-align: right;">0.250</td>
+<td style="text-align: right;">0.500</td>
+<td style="text-align: right;">0.188</td>
+<td style="text-align: right;">0.562</td>
+</tr>
+<tr class="even">
+<td>Historical-rate rule</td>
+<td style="text-align: right;">0.340</td>
+<td style="text-align: right;">0.621</td>
+<td style="text-align: right;">0.182</td>
+<td style="text-align: right;">0.547</td>
+</tr>
+<tr class="odd">
+<td>Logistic regression</td>
+<td style="text-align: right;">0.478</td>
+<td style="text-align: right;">0.708</td>
+<td style="text-align: right;">0.166</td>
+<td style="text-align: right;">0.509</td>
+</tr>
+<tr class="even">
+<td>Random forest</td>
+<td style="text-align: right;">0.491</td>
+<td style="text-align: right;">0.713</td>
+<td style="text-align: right;"><strong>0.164</strong></td>
+<td style="text-align: right;"><strong>0.504</strong></td>
+</tr>
+<tr class="odd">
+<td><strong>LightGBM (tuned)</strong></td>
+<td style="text-align: right;">0.507</td>
+<td style="text-align: right;">0.716</td>
+<td style="text-align: right;">0.167</td>
+<td style="text-align: right;">0.519</td>
+</tr>
+<tr class="even">
+<td>XGBoost (tuned)</td>
+<td style="text-align: right;"><strong>0.508</strong></td>
+<td style="text-align: right;">0.716</td>
+<td style="text-align: right;">0.167</td>
+<td style="text-align: right;">0.517</td>
+</tr>
+<tr class="odd">
+<td><em>LightGBM, post-push-back</em></td>
+<td style="text-align: right;"><em>0.846</em></td>
+<td style="text-align: right;"><em>0.903</em></td>
+<td style="text-align: right;"><em>0.097</em></td>
+<td style="text-align: right;"><em>0.327</em></td>
+</tr>
+</tbody>
+</table>
+<p><img src="figures/08_roc_pr_curves.png" alt="ROC and PR curves" /></p>
+<p>Reading these honestly:</p>
+<ul>
+<li>The tuned model doubles PR-AUC over the base rate (0.507 against 0.250) and beats the no-machine-learning rule by half again (0.340).</li>
+<li><strong>The gain from gradient boosting over logistic regression is 0.029 PR-AUC.</strong> Real, but small next to the 0.138 that logistic regression itself gains over the historical-rate rule. Most of the value came from constructing the features, not from the model class.</li>
+<li><strong>XGBoost and LightGBM are indistinguishable</strong> (0.508 vs 0.507, ROC-AUC identical to three decimals) despite independent searches over different parameterisations. Two libraries converging on the same number is evidence we are near the ceiling of what these features support, not evidence that more tuning would help.</li>
+<li>Random forest has the best Brier score and log loss despite worse ranking, because averaging bootstrap votes produces conservative, well-spread probabilities. Discrimination and calibration are separate properties, and §6 makes that separation the point.</li>
+</ul>
+<h3 id="51-the-prediction-horizon-experiment">5.1 The prediction-horizon experiment</h3>
+<p><img src="figures/13_prediction_horizon.png" alt="Prediction horizon" /></p>
+<p>Same model, same features, same split — the only change is admitting <code>dep_delay</code> and the inbound leg's actual delay. PR-AUC goes from 0.507 to 0.846; ROC-AUC from 0.716 to 0.903.</p>
+<p>The interpretation is not that our model is weak. It is that <strong>arrival delay is mostly departure delay plus noise</strong>, and departure delay is not knowable in advance. Any published result in the 0.90 ROC-AUC range on this dataset is answering the post-push-back question. The two numbers are not comparable and should never be quoted side by side without the horizon attached.</p>
+<h3 id="52-turning-probabilities-into-decisions">5.2 Turning probabilities into decisions</h3>
+<p>A probability is not a decision. We define an explicit cost model: a false alarm wastes agent time and erodes trust; a missed delay causes misconnections, rebooking and compensation. We set the missed-delay cost at <strong>4× the false alarm</strong> — a policy choice, stated openly and swept rather than hidden.</p>
+<p><img src="figures/10_threshold_selection.png" alt="Threshold selection" /></p>
+<p>Minimising expected cost on the validation period gives a threshold of <strong>0.20</strong>, not 0.5. On the test period that yields:</p>
+<table>
+<tbody>
+<tr class="odd">
+<td>Precision</td>
+<td>47.3%</td>
+</tr>
+<tr class="even">
+<td>Recall</td>
+<td>49.2%</td>
+</tr>
+<tr class="odd">
+<td>F1</td>
+<td>0.482</td>
+</tr>
+<tr class="even">
+<td>Share of flights flagged</td>
+<td>26.0%</td>
+</tr>
+<tr class="odd">
+<td>Expected cost per flight</td>
+<td><strong>0.645</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Against the alternatives: alerting on nothing costs 1.000 per flight, alerting on everything costs 0.750, and the default 0.5 threshold costs 0.844. <strong>The default threshold captures barely a fifth of the available benefit.</strong> Choosing it by cost rather than convention is the difference between a model that helps and one that does not.</p>
+<p><img src="figures/11_confusion_matrix.png" alt="Confusion matrix" /></p>
+<h3 id="53-the-operational-view">5.3 The operational view</h3>
+<p>A desk cannot act on 26% of flights. Fixing the alerting budget at the top 10% by predicted risk:</p>
+<table>
+<tbody>
+<tr class="odd">
+<td>Flights flagged</td>
+<td>5,399</td>
+</tr>
+<tr class="even">
+<td>Of which actually late</td>
+<td><strong>64.1%</strong></td>
+</tr>
+<tr class="odd">
+<td>Share of all late flights caught</td>
+<td>25.7%</td>
+</tr>
+<tr class="even">
+<td>Lift over base rate</td>
+<td><strong>2.56×</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Two out of every three flights the model puts at the top of the list do arrive late, against a background rate of one in four. For a triage tool this is the number that matters, and it is considerably more encouraging than ROC-AUC 0.716 sounds.</p>
+<h3 id="54-severity-how-late-not-just-whether-late">5.4 Severity: how late, not just whether late</h3>
+<p>A second LightGBM regressor predicts arrival delay in minutes, trained with an L1 objective because the right tail would otherwise dominate a squared-error fit.</p>
+<p><img src="figures/14_severity_model.png" alt="Severity model" /></p>
+<p>The honest summary is mixed, and the two halves point in opposite directions:</p>
+<ul>
+<li><strong>Point accuracy is barely better than a constant.</strong> MAE 22.8 minutes against 23.3 for always predicting the training median — a 2.2% improvement. Three quarters of flights are on time and L1 loss rewards predicting the median, so it does.</li>
+<li><strong>Ranking is genuinely useful.</strong> Spearman ρ = 0.332, and the decile medians rise monotonically from −8 minutes in the lowest decile to <strong>+31 minutes in the highest</strong>, where 64% of flights are late. On late flights specifically, MAE improves from 60.4 to 57.0 minutes.</li>
+</ul>
+<p>So the severity head should be presented as a <em>sorting</em> tool, not a <em>forecasting</em> tool. "This flight is in the worst decile, where the typical delay is half an hour" is supportable. "This flight will be 31 minutes late" is not.</p>
+<h3 id="55-where-the-model-fails">5.5 Where the model fails</h3>
+<p><img src="figures/12_segment_error_analysis.png" alt="Segment errors" /></p>
+<p>Broken out by month, origin, carrier, distance, weather and time of day (segments with n ≥ 200):</p>
+<ul>
+<li><strong>Discrimination is stable.</strong> Within-segment ROC-AUC stays between 0.66 and 0.76 everywhere. No segment is being served by noise.</li>
+<li><strong>Calibration is not.</strong> Every segment under-predicts, and November (predicted 16.0% against 17.4% actual) is close while December (predicted 19.3% against 32.6% actual) is badly off. The failure is a systematic level shift concentrated in one month, not scattered error.</li>
+<li><strong>Long-haul is hardest.</strong> Flights over 1,800 miles score ROC-AUC 0.670 against 0.739 for flights under 500 miles. Long flights have more time to absorb or accumulate en-route disruption that no NYC-origin feature can see.</li>
+<li><strong>Weather segments behave sensibly.</strong> Precipitating hours score <em>higher</em> within-segment AUC (0.737) than dry hours (0.695) — when weather is doing the work, the model has something to work with.</li>
+</ul>
+<hr />
+<h2 id="6-calibration-under-distribution-shift">6. Calibration under distribution shift</h2>
+<p>This section is the analytical core of the report.</p>
+<p>The model's average prediction on the test period is <strong>0.175</strong> against an actual rate of <strong>0.250</strong>. It is systematically under-confident. But the failure is not uniform:</p>
+<p><img src="figures/15_calibration_drift.png" alt="Calibration drift" /></p>
+<p>Through November the daily mean prediction tracks the daily actual rate closely, including the sharp spikes. From roughly 8 December the two diverge and never reconverge: on the worst days the model predicts 0.40 while 0.70 of flights arrive late.</p>
+<h3 id="61-why--a-diagnosis-not-a-guess">6.1 Why — a diagnosis, not a guess</h3>
+<p><img src="figures/22_level_vs_ranking.png" alt="Level versus ranking" /></p>
+<p>SHAP ranks <code>day_of_year</code> as the <strong>single most influential feature</strong> by mean |SHAP|, ahead of every weather and historical-rate variable. That is suspicious, and inspecting it explains the drift:</p>
+<ul>
+<li>Training values span days <strong>1–243</strong>. Test values span <strong>305–365</strong>. Every test flight is outside the range the model ever saw.</li>
+<li>A gradient-boosted tree cannot extrapolate. Every test flight falls into the same terminal bin on every split involving this feature.</li>
+<li>The result is a near-constant contribution of <strong>−0.349 log-odds</strong>, with standard deviation only 0.109 — Nov −0.360, Dec −0.339, essentially flat.</li>
+<li>The total mean SHAP across all features is −0.508, so <strong><code>day_of_year</code> alone accounts for 69% of the model's average downward push</strong>.</li>
+</ul>
+<p>The scatter plot above generalises this. Plotting |mean SHAP| against SD of SHAP separates two behaviours that the standard importance bar chart adds together:</p>
+<ul>
+<li>Points far <strong>above</strong> the diagonal shift every prediction by the same amount. They move calibration and contribute nothing to ranking. <code>day_of_year</code> is the extreme case, and all three flagged out-of-range features (<code>day_of_year</code>, <code>week_of_year</code>, <code>month</code>) sit there.</li>
+<li>Points <strong>along or below</strong> the diagonal vary flight to flight. They are what produce AUC. <code>te_carrier_sched_dep_hour</code> (SD 0.286) and <code>wx_precip_6h</code> (SD 0.236) are the real discriminators.</li>
+</ul>
+<p><strong>Mean |SHAP| conflates the two, and on a temporal split it will reliably promote calendar indices to the top of the chart while they are contributing nothing to discrimination.</strong> We have not seen this stated in the standard SHAP guidance and consider it the most transferable finding here.</p>
+<h3 id="62-the-obvious-fix-does-not-work">6.2 The obvious fix does not work</h3>
+<p>Delete the offending features? We tested it. Removing <code>day_of_year</code>, <code>week_of_year</code> and <code>month</code> <strong>costs 0.016 PR-AUC</strong> (0.505 → 0.489). They earn their place through interactions with other features even though their direct contribution is a constant offset. Removing them is a net loss.</p>
+<p>Calibrate once on the validation period? Isotonic regression fitted on Sep–Oct changes the test Brier score from 0.18006 to 0.18003 — nothing. It cannot help, because it was fitted where the base rate is 15% and applied where it is 25%, so it corrects in the wrong direction.</p>
+<h3 id="63-what-does-work">6.3 What does work</h3>
+<p>Recalibrate continuously. Each day, refit an isotonic map on the previous 14 days of flights that have already landed — labels a deployed system genuinely has — and use it to score today. Every day is scored by a calibrator that has never seen it.</p>
+<table>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th style="text-align: right;">Brier</th>
+<th style="text-align: right;">Log loss</th>
+<th style="text-align: right;">Mean prediction</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Uncalibrated</td>
+<td style="text-align: right;">0.1801</td>
+<td style="text-align: right;">0.5526</td>
+<td style="text-align: right;">0.183</td>
+</tr>
+<tr class="even">
+<td>Isotonic, fitted on validation</td>
+<td style="text-align: right;">0.1800</td>
+<td style="text-align: right;">0.5518</td>
+<td style="text-align: right;">0.185</td>
+</tr>
+<tr class="odd">
+<td><strong>Isotonic, rolling 14 days</strong></td>
+<td style="text-align: right;"><strong>0.1698</strong></td>
+<td style="text-align: right;"><strong>0.5209</strong></td>
+<td style="text-align: right;"><strong>0.259</strong></td>
+</tr>
+<tr class="even">
+<td><em>(actual rate)</em></td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"><em>0.276</em></td>
+</tr>
+</tbody>
+</table>
+<p>A <strong>5.7% reduction in both Brier score and log loss</strong>, and the mean prediction moves from 0.183 to 0.259 against an actual 0.276. The green line in the drift figure tracks December where the blue and purple lines flatten.</p>
+<p>The operational conclusion: <strong>for this problem, the maintenance burden is recalibration, not retraining.</strong> Retraining is expensive and needs a full season of new labels; rolling recalibration needs two weeks of outcomes and a few milliseconds of isotonic regression. The discriminative structure the model learned in January still holds in December — only the level moved.</p>
+<hr />
+<h2 id="7-what-the-model-actually-uses">7. What the model actually uses</h2>
+<p><img src="figures/16_shap_importance.png" alt="SHAP importance" /> <img src="figures/17_shap_beeswarm.png" alt="SHAP beeswarm" /></p>
+<p>Setting aside <code>day_of_year</code> (§6.1), the top features are the carrier × hour historical rate, 6-hour precipitation, the destination × hour rate, pressure and humidity. The beeswarm confirms the directions are physically sensible: high precipitation pushes towards late, high pressure (fair weather) pushes towards on-time, high historical rates push towards late.</p>
+<p><img src="figures/18_shap_by_group.png" alt="SHAP by group" /></p>
+<p>By family, attribution splits weather 32%, calendar 26%, historical rates 24%, route and schedule 10%, congestion 4%, rotation 3%, aircraft 1%.</p>
+<p><img src="figures/19_shap_dependence.png" alt="SHAP dependence" /></p>
+<p>The dependence plots show threshold behaviour rather than linear response. Precipitation has almost no effect until it becomes non-zero, then jumps. Visibility matters below about 5 miles and is flat above it. This is why tree ensembles beat logistic regression here, and also why the margin is only 0.029 — the thresholds are sharp but few.</p>
+<h3 id="71-attribution-is-not-value-the-ablation">7.1 Attribution is not value: the ablation</h3>
+<p>SHAP measures how much the <em>fitted model leans on</em> a feature. That is not the same as how much predictive value the feature <em>carries</em>, because a feature can be heavily used and entirely redundant. To measure value we retrained the model with each family removed and recorded the drop in test PR-AUC.</p>
+<p><img src="figures/21_ablation.png" alt="Ablation" /></p>
+<table>
+<thead>
+<tr class="header">
+<th>Family removed</th>
+<th style="text-align: right;">Test PR-AUC</th>
+<th style="text-align: right;">Change</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>— (full model)</td>
+<td style="text-align: right;">0.5049</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr class="even">
+<td><strong>Weather</strong></td>
+<td style="text-align: right;">0.3640</td>
+<td style="text-align: right;"><strong>−0.1409</strong></td>
+</tr>
+<tr class="odd">
+<td>Time index (day/week/month)</td>
+<td style="text-align: right;">0.4889</td>
+<td style="text-align: right;">−0.0160</td>
+</tr>
+<tr class="even">
+<td>Rotation</td>
+<td style="text-align: right;">0.4961</td>
+<td style="text-align: right;">−0.0088</td>
+</tr>
+<tr class="odd">
+<td>Calendar (all)</td>
+<td style="text-align: right;">0.4980</td>
+<td style="text-align: right;">−0.0069</td>
+</tr>
+<tr class="even">
+<td>Route &amp; schedule</td>
+<td style="text-align: right;">0.5034</td>
+<td style="text-align: right;">−0.0015</td>
+</tr>
+<tr class="odd">
+<td>Historical rates</td>
+<td style="text-align: right;">0.5058</td>
+<td style="text-align: right;"><strong>+0.0009</strong></td>
+</tr>
+<tr class="even">
+<td>Congestion</td>
+<td style="text-align: right;">0.5070</td>
+<td style="text-align: right;"><strong>+0.0021</strong></td>
+</tr>
+<tr class="odd">
+<td>Aircraft</td>
+<td style="text-align: right;">0.5073</td>
+<td style="text-align: right;"><strong>+0.0024</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Three conclusions, two of them uncomfortable:</p>
+<ol>
+<li><strong>Weather is the entire game.</strong> Removing it costs 0.141 PR-AUC — ten times the next-largest effect, and it drops the model below logistic regression <em>with</em> weather. If this system were being productionised, the hourly weather feed is the one input worth paying for, and a weather <strong>forecast</strong> feed would be the highest-value extension.</li>
+<li><strong>The historical-rate encodings are redundant.</strong> Eight target encodings, five-fold out-of-fold machinery, Bayesian smoothing — and removing them all <em>improves</em> test PR-AUC by 0.0009. SHAP attributes 24% of influence to them, yet whatever they encode is already recoverable from carrier, destination and hour as raw features. This is exactly the attribution-versus-value gap.</li>
+<li><strong>Congestion and aircraft features are noise.</strong> Both marginally negative. Scheduled congestion is presumably already implicit in hour-of-day, and aircraft age tells you about the airline's fleet, not about today.</li>
+</ol>
+<p>A leaner model — weather, calendar, route, carrier, rotation — would score within noise of the full one at roughly a third of the features. We report the full model because it is what the search selected, but the ablation is the more useful result for anyone building on this.</p>
+<h3 id="72-individual-explanations">7.2 Individual explanations</h3>
+<p><img src="figures/20_shap_individual.png" alt="Individual explanations" /></p>
+<p>Because SHAP decomposes each prediction exactly, every score comes with a reason an operations agent can read. The highest-risk flight in the test sample — B6 1185, JFK→RDU, 30 December at 17:30, p = 0.98, which did arrive late — is driven almost entirely by rotation slack (+3.1 log-odds): the timetable gave that airframe an impossible turnaround on one of the worst days of the year. The lowest-risk flight, AA 1345 JFK→MIA at 07:10 on 9 November, is pushed down by the carrier × hour rate and the early departure slot.</p>
+<hr />
+<h2 id="8-limitations">8. Limitations</h2>
+<p>Stated plainly, because most of them bound the result.</p>
+<ol>
+<li><strong>Cancellations and diversions are dropped</strong> (2.8%). They are the worst outcome and they cluster in bad weather, so disruption is understated.</li>
+<li><strong>Weather is observed, not forecast.</strong> At the scheduled departure time the current observation is genuinely available, so the pre-flight framing is sound. But extending the horizon to two or six hours requires a forecast, which is noisier — and since weather carries almost all the signal (§7.1), the model would degrade materially. We have not measured how much.</li>
+<li><strong>The inbound leg is invisible.</strong> Only NYC departures are recorded, so the dominant propagation mechanism is only partly observable (§3.3). A full BTS extract with all US flights would let the true inbound aircraft be tracked and is the single most promising data extension.</li>
+<li><strong>One year, three airports.</strong> No evidence the model transfers to other airports or years. 2013 predates several changes in FAA slot rules and airline scheduling practice.</li>
+<li><strong>Calibration degrades under seasonal shift</strong> and requires rolling recalibration (§6). A deployment without it will systematically under-warn in the worst weeks — precisely when it matters most.</li>
+<li><strong>The 4:1 cost ratio is asserted, not derived.</strong> The threshold moves with it. We swept the trade-off (figure 10) so a different ratio can be read off, but a real deployment needs the airline's actual numbers.</li>
+<li><strong>Congestion counts use the full-year timetable.</strong> Legitimate, since the schedule is published in advance — but a strict production replay would freeze the timetable as known at prediction time, which differs slightly after cancellations.</li>
+</ol>
+<hr />
+<h2 id="9-conclusions">9. Conclusions</h2>
+<p><strong>On the problem.</strong> Arrival delay is predictable in advance to a useful but bounded degree: PR-AUC 0.507 against a 0.250 base rate, with 64% precision on the riskiest 10% of flights. That is a genuine triage tool and not a crystal ball. The much higher numbers commonly reported for this dataset come from including the observed departure delay, which lifts PR-AUC to 0.846 and answers a question nobody needs answered.</p>
+<p><strong>On what matters.</strong> Weather dominates everything else by an order of magnitude. Feature construction beat model selection: logistic regression on good features beat the historical-rate rule by 0.138 PR-AUC, while gradient boosting on those same features beat logistic regression by only 0.029. Two independently tuned boosting libraries landed within 0.001 of each other, which suggests the ceiling here is the data, not the algorithm.</p>
+<p><strong>On method.</strong> Three of our findings are about method rather than flights, and they are the ones most likely to transfer:</p>
+<ul>
+<li>A target-encoding key that does not recur across a temporal split is worse than no feature at all (§3.2).</li>
+<li>Mean |SHAP| conflates level shifts with ranking power, and on temporal splits it will promote out-of-range calendar features to the top of the importance chart while they contribute nothing to AUC. Plotting mean against standard deviation separates them (§6.1).</li>
+<li>Feature attribution and feature value diverge sharply. The historical-rate encodings took 24% of SHAP attribution and were worth −0.0009 PR-AUC (§7.1). Only an ablation answers the question "is this data worth collecting".</li>
+</ul>
+<p><strong>On deployment.</strong> Ship the pre-flight model with a cost-derived threshold of 0.20 rather than 0.5 — the default forfeits four fifths of the available benefit — and a rolling 14-day isotonic recalibration, which recovers 5.7% of Brier score under the December shift that retraining alone would not catch.</p>
+<hr />
+<h2 id="appendix-a--reproducing-this-report">Appendix A — Reproducing this report</h2>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true"></a><span class="ex">pip</span> install -r requirements.txt</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true"></a><span class="fu">make</span> reproduce      # ~15 minutes on 4 cores</span></code></pre></div>
+<p>Every figure and every number above is regenerated by that command. Seeds are fixed (<code>SEED = 42</code> in <code>src/config.py</code>); random search draws are seeded, so draw <em>i</em> is always the same hyperparameter set.</p>
+<h2 id="appendix-b--artefacts">Appendix B — Artefacts</h2>
+<table>
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>reports/metrics/evaluation.json</code></td>
+<td>every test metric, threshold sweep, calibration comparison</td>
+</tr>
+<tr class="even">
+<td><code>reports/metrics/lgbm_search.json</code></td>
+<td>all 40 search draws with per-fold scores</td>
+</tr>
+<tr class="odd">
+<td><code>reports/metrics/xgb_search.json</code></td>
+<td>8 XGBoost draws</td>
+</tr>
+<tr class="even">
+<td><code>reports/metrics/ablation.json</code></td>
+<td>feature-family ablation</td>
+</tr>
+<tr class="odd">
+<td><code>reports/metrics/shap_importance.json</code></td>
+<td>SHAP importance, group shares, out-of-range diagnostics</td>
+</tr>
+<tr class="even">
+<td><code>reports/metrics/segment_errors.csv</code></td>
+<td>per-segment error analysis</td>
+</tr>
+<tr class="odd">
+<td><code>reports/metrics/threshold_sweep_validation.csv</code></td>
+<td>full precision/recall/cost curve</td>
+</tr>
+<tr class="even">
+<td><code>reports/metrics/eda_summary.json</code></td>
+<td>descriptive statistics</td>
+</tr>
+<tr class="odd">
+<td><code>reports/figures/01–22</code></td>
+<td>all figures</td>
+</tr>
+</tbody>
+</table>
+<h2 id="appendix-c--test-suite">Appendix C — Test suite</h2>
+<p>14 checks in <code>tests/test_features.py</code>, run with <code>make test</code>:</p>
+<p><em>Leakage</em> — pre-flight features exclude all outcome columns; gate mode adds exactly the three post-push-back features; the inbound-leg delay never reads from the future; the tail-number encoding is genuinely out-of-fold; every encoding key recurs across the split boundary.</p>
+<p><em>Split integrity</em> — splits are disjoint, ordered in time, and no rows are lost across the joins.</p>
+<p><em>Feature correctness</em> — timezone-corrected block time matches air time plus plausible taxi and JFK–LAX comes out near six hours; HH:MM conversion; congestion counts nest correctly; rotation gaps are non-negative and same-day; the target matches its definition; the weather join is complete after filling; no object dtypes reach the model.</p>
+</body>
+</html>

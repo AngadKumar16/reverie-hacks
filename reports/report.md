@@ -59,7 +59,7 @@ registry, and ASOS/NOAA hourly weather observations.
 
 **Labelling.** 9,430 flights (2.8%) have no arrival delay because they were
 cancelled or diverted. They cannot carry an "arrived late" label and were
-removed, leaving **327,346 labelled flights**, of which **24.2% are late**.
+removed, leaving **327,346 labelled flights**, of which **23.7% are late**.
 
 This is a real limitation and we flag it rather than bury it. Cancellations are
 the most disruptive outcome of all, and they are not randomly distributed —
@@ -442,14 +442,14 @@ Broken out by month, origin, carrier, distance, weather and time of day
 - **Discrimination is stable.** Within-segment ROC-AUC stays between 0.66 and
   0.76 everywhere. No segment is being served by noise.
 - **Calibration is not.** Every segment under-predicts, and November
-  (predicted 15.9% against 17.3% actual) is nearly fine while December
-  (predicted 19.2% against 32.4% actual) is badly off. The failure is a
+  (predicted 16.0% against 17.4% actual) is close while December
+  (predicted 19.3% against 32.6% actual) is badly off. The failure is a
   systematic level shift concentrated in one month, not scattered error.
-- **Long-haul is hardest.** Flights over 1,800 miles score ROC-AUC 0.665
-  against 0.745 for 500–1,000 miles. Long flights have more time to absorb or
+- **Long-haul is hardest.** Flights over 1,800 miles score ROC-AUC 0.670
+  against 0.739 for flights under 500 miles. Long flights have more time to absorb or
   accumulate en-route disruption that no NYC-origin feature can see.
 - **Weather segments behave sensibly.** Precipitating hours score *higher*
-  within-segment AUC (0.735) than dry hours (0.695) — when weather is doing the
+  within-segment AUC (0.737) than dry hours (0.695) — when weather is doing the
   work, the model has something to work with.
 
 ---
