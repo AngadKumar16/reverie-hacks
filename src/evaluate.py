@@ -354,7 +354,70 @@ def fig_mode_comparison(y, p_pre, p_gate) -> None:
     _save(fig, "13_prediction_horizon")
 
 
-def fig_severity(y_min: np.ndarray, pred_min: np.ndarray, baseline: float) -> Dict:
+def rolling_isotonic(p: np.ndarray, y: np.ndarray, ts: pd.Series,
+                     window_days: int = 14) -> Tuple[np.ndarray, np.ndarray]:
+    """Recalibrate each day from the previous ``window_days`` of outcomes.
+
+    This is what a deployed system can actually do: yesterday's flights have
+    landed, so their labels are available. Each day is scored by a calibrator
+    that has never seen it. Returns the adjusted probabilities and a boolean
+    mask marking the days that were scored (the first window is warm-up).
+    """
+    day = ts.dt.floor("D")
+    days = np.sort(day.unique())
+    out = np.full(len(p), np.nan)
+    for d in days[window_days:]:
+        fit_mask = ((day >= d - pd.Timedelta(days=window_days))
+                    & (day < d)).to_numpy()
+        score_mask = (day == d).to_numpy()
+        if fit_mask.sum() < 200 or len(np.unique(y[fit_mask])) < 2:
+            continue
+        iso = IsotonicRegression(out_of_bounds="clip").fit(p[fit_mask], y[fit_mask])
+        out[score_mask] = iso.predict(p[score_mask])
+    scored = ~np.isnan(out)
+    return out, scored
+
+
+def fig_drift(ts: pd.Series, y: np.ndarray, p_raw: np.ndarray,
+              p_static: np.ndarray, p_roll: np.ndarray,
+              scored: np.ndarray) -> None:
+    """Show the December level shift and whether recalibration absorbs it."""
+    d = pd.DataFrame({"day": ts.dt.floor("D"), "y": y, "raw": p_raw,
+                      "static": p_static, "roll": p_roll, "scored": scored})
+    g = d.groupby("day").agg(actual=("y", "mean"), raw=("raw", "mean"),
+                             static=("static", "mean"), n=("y", "size"))
+    gr = d[d["scored"]].groupby("day").agg(roll=("roll", "mean"))
+    g = g.join(gr)
+
+    fig, axes = plt.subplots(2, 1, figsize=(15, 10), sharex=True)
+    ax = axes[0]
+    ax.plot(g.index, g["actual"], lw=2.8, color=ACCENT, label="actual daily late rate")
+    ax.plot(g.index, g["raw"], lw=2.2, color=BLUE, label="mean prediction (uncalibrated)")
+    ax.plot(g.index, g["static"], lw=1.8, ls="--", color="#8172b3",
+            label="static isotonic (fitted on Sep-Oct)")
+    ax.plot(g.index, g["roll"], lw=2.2, color="#55a868",
+            label="rolling isotonic (trailing 14 days)")
+    ax.set_ylabel("share of flights late")
+    ax.set_title("Daily base rate versus mean predicted probability, test period")
+    ax.legend(fontsize=10, ncol=2)
+
+    ax = axes[1]
+    err = (g["raw"] - g["actual"])
+    ax.bar(g.index, err, color=np.where(err < 0, ACCENT, BLUE), width=.85)
+    ax.axhline(0, color="black", lw=1)
+    ax.set_ylabel("mean prediction - actual")
+    ax.set_xlabel("date")
+    ax.set_title("Systematic under-prediction concentrates in the second half "
+                 "of December", fontsize=14)
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    _save(fig, "15_calibration_drift")
+
+
+def fig_severity(y_min: np.ndarray, pred_min: np.ndarray, baseline: float,
+                 is_late: np.ndarray) -> Dict:
+    from scipy.stats import spearmanr
+
     mae = float(mean_absolute_error(y_min, pred_min))
     mae_base = float(mean_absolute_error(y_min, np.full_like(y_min, baseline,
                                                              dtype=float)))
@@ -387,8 +450,24 @@ def fig_severity(y_min: np.ndarray, pred_min: np.ndarray, baseline: float) -> Di
     axes[1].legend(fontsize=11)
     fig.suptitle("Severity head: how late, not just whether late", y=1.02, fontsize=17)
     _save(fig, "14_severity_model")
-    return {"mae_min": mae, "mae_median_baseline_min": mae_base,
-            "improvement_pct": 100 * (1 - mae / mae_base)}
+
+    late_base = np.full(int(is_late.sum()), baseline, dtype=float)
+    return {
+        "mae_min": mae,
+        "mae_median_baseline_min": mae_base,
+        "improvement_pct": 100 * (1 - mae / mae_base),
+        "mae_on_late_flights_min": float(mean_absolute_error(y_min[is_late],
+                                                             pred_min[is_late])),
+        "mae_on_late_flights_baseline_min": float(
+            mean_absolute_error(y_min[is_late], late_base)),
+        "spearman_rho": float(spearmanr(pred_min, y_min).statistic),
+        "decile_median_actual_min": [
+            float(v) for v in g["actual"].tolist()
+        ],
+        # The honest reading: point accuracy barely beats a constant, because
+        # three quarters of flights are on time and L1 loss rewards predicting
+        # the median. The value is in the ordering -- see the decile medians.
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -428,23 +507,42 @@ def main() -> None:
     p_te_cal = iso.predict(p_te)
     results["lightgbm_cal"] = {"test": discrimination(yte, p_te_cal)}
 
-    # A realistic online update: refit the calibrator on the first 14 days of
-    # the test period, then score the remainder. This is what a deployed system
-    # would actually do once new labels arrive.
+    # A realistic online update: every day, refit the calibrator on the
+    # previous fortnight of landed flights and use it to score today.
     test_sorted = test.sort_values("sched_dep_utc").reset_index(drop=True)
     Xte_s, yte_s = xy(test_sorted, feats_a)
     p_te_s = predict("lightgbm", joblib.load(MODELS / "lightgbm.joblib"), Xte_s)
-    cutoff = test_sorted["sched_dep_utc"].min() + pd.Timedelta(days=14)
-    warm = (test_sorted["sched_dep_utc"] < cutoff).to_numpy()
-    iso_online = IsotonicRegression(out_of_bounds="clip").fit(p_te_s[warm], yte_s[warm])
-    p_rest_cal = iso_online.predict(p_te_s[~warm])
-    results["rolling_recalibration"] = {
-        "n_warmup_flights": int(warm.sum()),
-        "brier_uncalibrated": float(brier_score_loss(yte_s[~warm], p_te_s[~warm])),
-        "brier_isotonic_from_validation": float(
-            brier_score_loss(yte_s[~warm], iso.predict(p_te_s[~warm]))),
-        "brier_isotonic_rolling": float(brier_score_loss(yte_s[~warm], p_rest_cal)),
+    ts = test_sorted["sched_dep_utc"]
+    p_roll, scored = rolling_isotonic(p_te_s, yte_s, ts, window_days=14)
+    p_static_s = iso.predict(p_te_s)
+
+    results["recalibration"] = {
+        "n_flights_scored_by_rolling": int(scored.sum()),
+        "note": ("scored on the same subset for all three variants so the "
+                 "comparison is like for like"),
+        "brier": {
+            "uncalibrated": float(brier_score_loss(yte_s[scored], p_te_s[scored])),
+            "isotonic_fitted_on_validation": float(
+                brier_score_loss(yte_s[scored], p_static_s[scored])),
+            "isotonic_rolling_14d": float(
+                brier_score_loss(yte_s[scored], p_roll[scored])),
+        },
+        "log_loss": {
+            "uncalibrated": float(log_loss(yte_s[scored],
+                                           np.clip(p_te_s[scored], 1e-7, 1 - 1e-7))),
+            "isotonic_fitted_on_validation": float(
+                log_loss(yte_s[scored], np.clip(p_static_s[scored], 1e-7, 1 - 1e-7))),
+            "isotonic_rolling_14d": float(
+                log_loss(yte_s[scored], np.clip(p_roll[scored], 1e-7, 1 - 1e-7))),
+        },
+        "mean_prediction_vs_actual": {
+            "actual_rate": float(yte_s[scored].mean()),
+            "uncalibrated": float(p_te_s[scored].mean()),
+            "isotonic_fitted_on_validation": float(p_static_s[scored].mean()),
+            "isotonic_rolling_14d": float(p_roll[scored].mean()),
+        },
     }
+    fig_drift(ts, yte_s, p_te_s, p_static_s, p_roll, scored)
 
     # ---- threshold & decisions ---------------------------------------
     sweep_va, t_cost, t_f1 = sweep_threshold(yva, iso.predict(p_va))
@@ -476,7 +574,8 @@ def main() -> None:
     reg = joblib.load(MODELS / "lightgbm_severity.joblib")
     pred_min = reg.predict(Xte)
     results["severity"] = fig_severity(test["arr_delay"].to_numpy(), pred_min,
-                                       float(train["arr_delay"].median()))
+                                       float(train["arr_delay"].median()),
+                                       yte.astype(bool))
 
     # ---- figures -------------------------------------------------------
     fig_curves(yte, {**preds_te, "lightgbm_cal": p_te_cal})
