@@ -17,19 +17,76 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import importlib.util
+
+import streamlit as st
+
+st.set_page_config(page_title="FlightRisk NYC", page_icon="🛫", layout="wide")
+
+# --- preflight -------------------------------------------------------------
+# A raw ModuleNotFoundError halfway through a demo is a bad look, and the usual
+# cause is mundane: streamlit is installed in one interpreter and lightgbm in
+# another. Check first and say exactly what to run.
+_NEEDED = {"lightgbm": "lightgbm", "shap": "shap", "joblib": "joblib",
+           "pandas": "pandas", "numpy": "numpy", "sklearn": "scikit-learn",
+           "matplotlib": "matplotlib", "pyarrow": "pyarrow"}
+_missing = [pip for mod, pip in _NEEDED.items()
+            if importlib.util.find_spec(mod) is None]
+
+if _missing:
+    st.error(f"Missing {len(_missing)} package(s) in this interpreter: "
+             f"`{', '.join(_missing)}`")
+    st.markdown(f"""
+Streamlit is running under:
+
+```
+{sys.executable}
+```
+
+but the project's dependencies are not installed there. Install them into an
+isolated environment so the two cannot drift apart:
+
+```bash
+cd {ROOT}
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+make app
+```
+
+For a full diagnosis of the environment, the data and the models:
+
+```bash
+python3 scripts/doctor.py
+```
+""")
+    st.stop()
+
 import joblib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import streamlit as st
 
 from src.config import CAPACITY_FRACTION, MODE_A, MODELS
-from src.explain import pretty
+from src.naming import pretty
 from src.pipeline import load_splits, xy
 
-st.set_page_config(page_title="FlightRisk NYC", page_icon="🛫", layout="wide")
+# The pipeline artefacts are gitignored, so a fresh clone has code but no data.
+_ARTEFACTS = [
+    (MODELS / "lightgbm.joblib", "make train"),
+    (MODELS / "lightgbm_severity.joblib", "make train"),
+    (ROOT / "data" / "processed" / "manifest.json", "make data"),
+]
+_absent = [(pth, fix) for pth, fix in _ARTEFACTS if not pth.exists()]
+if _absent:
+    st.error("The trained models and cached splits are not on disk yet.")
+    st.markdown(
+        "They are regenerated rather than committed (they weigh ~40 MB). "
+        "Build them once:\n\n```bash\nmake data\nmake train\n```\n\n"
+        "Missing:\n\n" + "\n".join(f"- `{p.name}` → `{fix}`" for p, fix in _absent))
+    st.stop()
 
 ACCENT = "#c44e52"
 BLUE = "#3b6978"
