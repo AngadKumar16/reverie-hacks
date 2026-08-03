@@ -1,5 +1,5 @@
 .PHONY: all setup data test eda train evaluate explain app clean reproduce \
-        report notebook verify severity horizon disruption
+        report notebook verify severity horizon disruption impact fairness
 
 PY ?= python3
 
@@ -43,6 +43,15 @@ horizon:
 disruption:
 	$(PY) -m src.cancellations
 
+## Delay minutes, passenger hours, dollars and CO2 at a fixed alert budget,
+## against random and no-ML baselines, with every assumption swept.
+impact:
+	$(PY) -m src.impact
+
+## Who the alert budget reaches, and what evening it out would cost.
+fairness:
+	$(PY) -m src.fairness
+
 ## Typeset reports/report.md to PDF (needs pandoc + weasyprint).
 report:
 	$(PY) scripts/build_report_pdf.py
@@ -60,7 +69,8 @@ verify:
 	$(PY) scripts/verify.py
 
 ## Full pipeline from a clean clone. ~15 minutes on 4 cores.
-reproduce: data test eda train evaluate explain severity horizon disruption verify
+reproduce: data test eda train evaluate explain severity horizon disruption \
+           impact fairness verify
 	@echo "Done. Figures in reports/figures, metrics in reports/metrics."
 
 clean:

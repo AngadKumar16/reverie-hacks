@@ -1,0 +1,17 @@
+# Deliberate theme rather than the Streamlit default, so the demo looks like a
+# tool somebody built on purpose. Colours are drawn from the Okabe-Ito
+# qualitative palette, which stays distinguishable under deuteranopia,
+# protanopia and tritanopia -- the same palette the report figures use.
+[theme]
+base = "light"
+primaryColor = "#0072B2"          # Okabe-Ito blue, 4.6:1 on white
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F4F7"
+textColor = "#111418"             # 17.4:1 on white, well past WCAG AAA
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

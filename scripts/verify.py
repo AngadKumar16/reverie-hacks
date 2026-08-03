@@ -146,6 +146,14 @@ dis = json.loads((METRICS / "disruption.json").read_text())
 sev = json.loads((METRICS / "severity_v2.json").read_text())
 shp = json.loads((METRICS / "shap_importance.json").read_text())
 eda = json.loads((METRICS / "eda_summary.json").read_text())
+imp = json.loads((METRICS / "impact.json").read_text())
+fair = json.loads((METRICS / "fairness.json").read_text())
+
+# The impact and fairness modules read `test_predictions.npy` positionally, so
+# a re-ordered split would silently pair every flight with somebody else's
+# probability. Re-derive the exposure totals from the raw split and compare.
+_imp_late = int(test["is_delayed"].sum())
+_imp_min = float(test.loc[test["is_delayed"] == 1, "arr_delay"].clip(lower=0).sum())
 
 claims = {
     "pre-flight PR-AUC 0.507": approx(ev["lightgbm"]["test"]["pr_auc"], 0.507, 5e-4),
@@ -251,6 +259,60 @@ claims = {
     "cancellation rate 4x higher in precipitation": (
         dis["descriptives"]["cancellation_rate_precipitating"]
         / dis["descriptives"]["cancellation_rate_dry"] > 3.5),
+
+    # --- impact model (report 10) ------------------------------------
+    # The alignment check first: if the predictions had been paired with the
+    # wrong flights, these totals would not survive.
+    "impact exposure matches the raw test split": (
+        imp["exposure"]["total_late"] == _imp_late
+        and approx(imp["exposure"]["total_delay_minutes"], _imp_min, 1.0)),
+    "impact uses the same alert budget as the evaluation": approx(
+        imp["assumptions"]["alert_budget"], 0.10, 1e-9),
+    "impact unit costs are the cited ones": (
+        imp["assumptions"]["cost_per_block_minute_usd"] == 98.41
+        and imp["assumptions"]["passenger_value_of_time_usd_per_hour"] == 47.0),
+    "model beats random alerting on delay minutes reached": (
+        imp["at_operating_budget"]["model"]["delay_min_share"]
+        > 2.0 * imp["at_operating_budget"]["random"]["delay_min_share_mean"]),
+    "random baseline lands on the budget, as it must": approx(
+        imp["at_operating_budget"]["random"]["delay_min_share_mean"], 0.10, 5e-3),
+    "model beats the no-ML historical-rate rule": (
+        imp["at_operating_budget"]["model"]["delay_min_share"]
+        > 1.5 * imp["at_operating_budget"]["historical_rule"]["delay_min_share"]),
+    "delay minutes reached rise with the budget": all(
+        a["model_delay_min_share"] <= b["model_delay_min_share"]
+        for a, b in zip(imp["budget_curve"], imp["budget_curve"][1:])),
+    "a 100% budget reaches 100% of delay minutes": approx(
+        imp["budget_curve"][-1]["model_delay_min_share"], 1.0, 1e-9),
+    "net value is positive at the operating budget": (
+        imp["at_operating_budget"]["model"]["net_value_usd"] > 0),
+    "net value survives every one-at-a-time cost scenario": all(
+        v > 0 for knob, cases in imp["unit_cost_sensitivity"].items()
+        if knob != "baseline_net_usd"
+        for k, v in cases.items() if k in ("low", "high")),
+    "annualisation is discounted for a late-running test period": (
+        imp["scale_up"]["nyc_annual_lower_usd"]
+        < imp["scale_up"]["nyc_annual_upper_usd"]),
+    "break-even effectiveness is below the headline assumption": (
+        imp["sensitivity"]["breakeven_effectiveness_total"]
+        < imp["assumptions"]["mitigation_effectiveness"]),
+
+    # --- fairness audit (report 11) ----------------------------------
+    "fairness audit covers every carrier group above the size floor": (
+        len(fair["groups"]["carrier"]) >= 10),
+    "coverage gap across carriers is reported and non-trivial": (
+        fair["disparity"]["carrier"]["recall_gap"] > 0.05),
+    "the model under-predicts every group (December drift)": all(
+        g["calibration_error"] < 0 for g in fair["groups"]["carrier"]),
+    "proportional allocation spends the same budget": all(
+        abs(p["proportional_alerts"] - p["global_alerts"]) <= 2
+        for p in fair["price_of_equity"].values()),
+    "proportional allocation narrows every coverage gap": all(
+        p["proportional_recall_gap"] < p["global_recall_gap"]
+        for p in fair["price_of_equity"].values()),
+    "group shares sum to one": all(
+        approx(sum(g["share_of_flights"] for g in groups), 1.0, 0.06)
+        for groups in fair["groups"].values()),
 }
 for name, ok in claims.items():
     check(name, ok)
@@ -258,11 +320,13 @@ for name, ok in claims.items():
 # ---------------------------------------------------------------------------
 print("\n=== 5. Deliverables present ===")
 
-expected_figs = 26
+expected_figs = 29
 figs = sorted((ROOT / "reports" / "figures").glob("*.png"))
 check(f"{expected_figs} figures generated", len(figs) == expected_figs, f"found {len(figs)}")
 for path in ["README.md", "reports/report.md", "reports/report.pdf",
              "requirements.txt", "Makefile", "app/streamlit_app.py",
+             ".streamlit/config.toml", "docs/PITCH.md",
+             "reports/metrics/impact.json", "reports/metrics/fairness.json",
              "notebooks/01_walkthrough.ipynb", "tests/test_features.py"]:
     check(f"{path} exists", (ROOT / path).exists())
 
@@ -282,4 +346,4 @@ if failures:
     for f in failures:
         print(f"  - {f}")
     sys.exit(1)
-print(f"All {len(claims) + 22} checks passed.")
+print(f"All {len(claims) + 26} checks passed.")

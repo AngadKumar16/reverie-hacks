@@ -108,6 +108,9 @@ def _prepare(test: pd.DataFrame, p: np.ndarray) -> pd.DataFrame:
         "dest": test["dest"].to_numpy(),
     })
     out["day"] = pd.to_datetime(test["sched_dep_utc"]).dt.floor("D").to_numpy()
+    # Integer day labels. Every budget sweep re-sorts by day tens of times, and
+    # lexsort on datetime64 is an order of magnitude slower than on int64.
+    out["day_code"] = pd.factorize(out["day"])[0]
 
     seats = test["seats"].to_numpy(dtype=float) if "seats" in test else np.full(len(test), np.nan)
     # Regional jets and unmatched tail numbers leave gaps; fill with the median
@@ -148,8 +151,9 @@ def _alert_mask(df: pd.DataFrame, score: np.ndarray, budget: float) -> np.ndarra
         return np.ones(len(df), dtype=bool)
 
     mask = np.zeros(len(df), dtype=bool)
-    order = np.lexsort((-score, df["day"].to_numpy()))
-    days = df["day"].to_numpy()[order]
+    day_code = df["day_code"].to_numpy()
+    order = np.lexsort((-score, day_code))
+    days = day_code[order]
     # Boundaries of each day's block in the sorted order.
     starts = np.flatnonzero(np.r_[True, days[1:] != days[:-1]])
     ends = np.r_[starts[1:], len(order)]
@@ -300,6 +304,15 @@ def sensitivity(df: pd.DataFrame) -> Dict[str, object]:
     breakeven_all = per_unit["program_cost_usd"] / max(per_unit["gross_value_usd"], 1e-9)
     breakeven_airline = per_unit["program_cost_usd"] / max(per_unit["airline_value_usd"], 1e-9)
 
+    # The break-even effectiveness comes out near zero, which is itself the
+    # finding: handling an alert is so much cheaper than the delay it targets
+    # that the programme is not gated on cost. The binding question is whether
+    # advance warning changes anything at all, not whether it is affordable.
+    # The more legible form of the same statement is the ceiling on what a desk
+    # could spend per alert before the arithmetic turns negative.
+    at_headline = _value(exp, MITIGATION_EFFECTIVENESS)
+    n_alerts = max(exp["n_alerts"], 1)
+
     return {
         "effectiveness_axis": MITIGATION_SWEEP,
         "budget_axis": IMPACT_BUDGETS,
@@ -307,6 +320,13 @@ def sensitivity(df: pd.DataFrame) -> Dict[str, object]:
         "breakeven_effectiveness_total": float(breakeven_all),
         "breakeven_effectiveness_airline_only": float(breakeven_airline),
         "value_per_unit_effectiveness_usd": per_unit["gross_value_usd"],
+        "breakeven_cost_per_alert_usd": float(
+            at_headline["gross_value_usd"] / n_alerts),
+        "gross_value_per_alert_usd": float(at_headline["gross_value_usd"] / n_alerts),
+        "delay_min_per_alert": float(exp["delay_min_caught"] / n_alerts),
+        "note": ("break-even effectiveness is the share of a warned flight's "
+                 "delay a desk must recover for the programme to cover its own "
+                 "alert-handling cost"),
     }
 
 
@@ -341,29 +361,35 @@ def unit_cost_sensitivity(df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
 
 
 def scale_up(df: pd.DataFrame, per_period_net: float,
-             train_late_rate: float) -> Dict[str, float]:
-    """Extend a 61-day result to a year, with the bias stated out loud.
+             annual_late_rate: float) -> Dict[str, float]:
+    """Extend a two-month result to a year, with the bias stated out loud.
 
-    November and December 2013 are the worst two months in the dataset -- a
-    27.6% late rate against 23.7% for the year. Multiplying the test result by
-    six would inherit that. So we report both ends: the naive annualisation as
-    an upper bound, and the same figure discounted by the late-rate ratio as a
-    lower bound. The truth is between them and we do not pretend to know where.
+    The test period is November and December, which run late more often than
+    the year as a whole (25.0% against 23.7%), so multiplying by six inherits
+    that. We report both ends: the naive annualisation as an upper bound, and
+    the same figure discounted by the late-rate ratio as a lower bound. The
+    truth is between them and we do not pretend to know where.
+
+    Both bounds are per-flight quantities scaled by NYC's actual 2013
+    departure count, not a projection onto some larger market. Extrapolating
+    a three-airport model to the national network would be arithmetic, not
+    evidence, so it is not attempted here.
     """
     days = int(pd.Series(df["day"]).nunique())
     test_late_rate = float(df["is_delayed"].mean())
-    per_day = per_period_net / max(days, 1)
+    per_flight = per_period_net / max(len(df), 1)
 
-    upper = per_day * 365.0
-    lower = upper * (train_late_rate / max(test_late_rate, 1e-9))
+    upper = per_flight * NYC_ANNUAL_DEPARTURES
+    lower = upper * (annual_late_rate / max(test_late_rate, 1e-9))
 
     return {
         "test_days": days,
         "test_flights": int(len(df)),
         "test_late_rate": test_late_rate,
-        "annual_late_rate_reference": float(train_late_rate),
-        "net_usd_per_flight": float(per_period_net / max(len(df), 1)),
-        "net_usd_per_1000_flights": float(1000 * per_period_net / max(len(df), 1)),
+        "annual_late_rate_reference": float(annual_late_rate),
+        "seasonality_discount": float(annual_late_rate / max(test_late_rate, 1e-9)),
+        "net_usd_per_flight": float(per_flight),
+        "net_usd_per_1000_flights": float(1000 * per_flight),
         "nyc_annual_upper_usd": float(upper),
         "nyc_annual_lower_usd": float(lower),
         "nyc_annual_departures": NYC_ANNUAL_DEPARTURES,
@@ -462,8 +488,12 @@ def main() -> Dict[str, object]:
             "Run `make evaluate` first -- this module deliberately re-uses the "
             "evaluation's calibrated predictions so the two cannot disagree.")
 
+    # Deliberately *not* re-sorted. `evaluate.py` writes test_predictions.npy in
+    # the order `load_splits()` returns, so re-ordering here would silently pair
+    # every flight with somebody else's probability -- the kind of bug that
+    # makes results look plausible and be wrong. `scripts/verify.py` re-derives
+    # the PR-AUC from this pairing to prove the alignment holds.
     p = np.load(PRED_FILE)
-    test = test.sort_values("sched_dep_utc").reset_index(drop=True)
     df = _prepare(test, p)
 
     curve = budget_curve(df)
@@ -515,8 +545,12 @@ def main() -> Dict[str, object]:
         "budget_curve": curve.to_dict(orient="records"),
         "sensitivity": sens,
         "unit_cost_sensitivity": unit,
-        "scale_up": scale_up(df, at_value["net_value_usd"],
-                             float(train["is_delayed"].mean())),
+        # The annualisation reference is the late rate over the *whole* labelled
+        # year, not the training months, so the seasonal discount is measured
+        # against the right thing.
+        "scale_up": scale_up(df, at_value["net_value_usd"], float(
+            pd.concat([train["is_delayed"], valid["is_delayed"],
+                       test["is_delayed"]]).mean())),
     }
 
     fig_impact(curve, df)
