@@ -38,6 +38,61 @@ Two thirds of the apparent skill of a "flight delay model" is the observation
 that the plane left late. What remains — the 0.507 — is the part that is
 genuinely forecastable in advance, and it is the subject of this report.
 
+### 1.1 Who this is for, and what it costs them
+
+Delay is not a nuisance metric. The FAA's own commissioned study (Nextor) put
+the annual cost of US flight delay at **$33 billion**, split roughly **$16.7
+billion onto passengers** — lost time, missed connections, unplanned meals and
+hotels — and **$8.3 billion onto airlines** in crew, fuel and maintenance,
+with the balance falling on lost demand and downstream industries.[^1] For a
+single minute the arithmetic is public and specific: **$98.41 per block
+minute** of direct aircraft operating cost, filed by US passenger carriers on
+DOT Form 41 and published by Airlines for America — $37.01 of crew, $29.34 of
+fuel, $18.35 of maintenance, $9.76 of ownership.[^2] Passenger time is valued
+at **$47 per hour**, and that figure is not ours either: it is the FAA's own
+benefit-cost guidance.[^3]
+
+Three groups carry this, and they carry it unequally.
+
+**Operations desks** are the ones who can act, and they are budget-constrained
+in a way that shapes the entire problem. A duty manager at a New York airport
+oversees several hundred departures a day and can meaningfully intervene on a
+few dozen — swap an airframe, hold a connection, pre-position a crew, move a
+gate. What they lack is not authority but a ranked list early enough to use.
+This is why the whole project is built around a fixed alert budget rather than
+a classification accuracy: the operational constraint is attention, not
+knowledge.
+
+**Connecting passengers** carry the sharpest end. A delay of nine minutes is
+an inconvenience; a delay of sixty-five is a missed connection, a rebooking, and
+in the worst case an unplanned night. That is the reason this report spends
+§5.5 on severity tiers rather than stopping at a binary label — the >60 minute
+tier is roughly the misconnection boundary, and the model reads it *better*
+than the 15-minute one (ROC-AUC 0.770 against 0.716).
+
+**Passengers to small destinations** have the least slack and the least
+attention. A traveller to Los Angeles who misses a connection catches the next
+of many; a traveller to Burlington or Bangor may not fly again until tomorrow.
+This group is invisible in an accuracy metric and shows up only when you look
+at who a ranked alert list actually reaches, which is what §10 does.
+
+Two things follow from taking those three groups seriously, and both changed
+the work rather than decorating it. First, the decision point had to be fixed
+*before* push-back, because that is when the desk still has options — which is
+what makes this problem hard and the published 0.90-AUC results irrelevant.
+Second, the model had to be evaluated as a rationing device rather than a
+classifier: §9 measures what a fixed budget reaches in minutes, passenger
+hours, dollars and CO₂, and §10 measures who it reaches.
+
+[^1]: Ball et al., *Total Delay Impact Study*, NEXTOR for the FAA; figures as
+      reported by Airlines for America and widely cited at $33bn/year, of which
+      $16.7bn falls on passengers and $8.3bn directly on carriers.
+[^2]: Airlines for America, "U.S. Passenger Carrier Delay Costs", 2025 calendar
+      year, published 23 July 2026, from DOT Form 41 filings.
+      <https://www.airlines.org/dataset/u-s-passenger-carrier-delay-costs/>
+[^3]: FAA, *Economic Values for FAA Investment and Regulatory Decisions*,
+      Section 1: value of travel time, cited by A4A as the $47/hour figure.
+
 ---
 
 ## 2. Data
@@ -591,7 +646,7 @@ The combined disruption model is the one to deploy: PR-AUC 0.566 and 71.1%
 precision in the riskiest decile, both better than the late-only model, because
 the added outcome is the easy one.
 
-### 5.5 Where the model fails
+### 5.8 Where the model fails
 
 ![Segment errors](figures/12_segment_error_analysis.png)
 
@@ -828,7 +883,277 @@ What remains:
 
 ---
 
-## 9. Conclusions
+## 9. What the model is worth
+
+Every number so far measures the ranking. This section measures the
+consequence of using it, which is a different question and needs a different
+kind of honesty: the chain from a probability to a dollar has three links, and
+only the first belongs to us.
+
+1. **Ranking quality.** Measured, on held-out data, above.
+2. **Unit costs.** External and cited: $98.41 per block minute, $47 per
+   passenger hour, an 83.1% load factor (§1.1).
+3. **Mitigation effectiveness** — how much of a warned delay a desk actually
+   recovers. **Nobody publishes this, and we cannot measure it from a
+   historical dataset**, because the dataset contains no counterfactual. It is
+   therefore never assumed: the headline uses a deliberately pessimistic 10%,
+   the full 2–40% range is swept, and the break-even is reported so the reader
+   can substitute their own belief.
+
+### 9.1 The operating rule, made harder on purpose
+
+The budget is spent **per day**, not pooled across the test period. This
+matters more than it sounds. A desk does not get to save November's alerts and
+spend them all on 22 December; pooling would let the evaluation do exactly
+that and would flatter the result. Under the pooled rule the top decile is 64%
+late (§5.3). Under the per-day rule it is **47.2%**. The lower number is the
+one this section uses.
+
+### 9.2 What a 10% budget reaches
+
+Nov–Dec 2013: 53,991 flights, 13,492 late, **761,202 delay minutes**,
+1,381,641 passenger-hours of delay.
+
+| Rule | Alerts | Precision | Delay minutes reached | Share of all delay |
+|---|---:|---:|---:|---:|
+| Random | 5,423 | 25.0% | 75,965 | 10.0% ± 0.3% |
+| Route's historical late rate (no ML) | 5,423 | 31.6% | 111,426 | 14.6% |
+| **This model** | **5,423** | **47.2%** | **183,879** | **24.2%** |
+
+The comparison that matters is the first row, not zero. A desk alerting at
+random on 10% of flights already catches 10% of the delay minutes; a claim of
+value has to be stated net of that. The model reaches **2.4× the delay minutes
+random selection does** and **1.65× a route-level historical lookup table** —
+the thing an airline would plausibly build in a spreadsheet instead.
+
+![Impact of a fixed alert budget](figures/27_impact_curve.png)
+
+Note the shape of the left panel: the model's advantage is widest at small
+budgets and vanishes at 100%, where every rule alerts on everything and
+ranking stops mattering. That is the correct behaviour and a useful sanity
+check — a curve that did not converge would mean a bug.
+
+### 9.3 Turning that into value
+
+At 10% mitigation effectiveness, over the two held-out months:
+
+| Quantity | Value |
+|---|---:|
+| Delay minutes recovered | 18,388 |
+| Airline operating cost avoided | $1.81M |
+| Passenger time returned | 27,015 hours ($1.27M) |
+| Desk cost of handling 5,423 alerts | $0.03M |
+| **Net recovered value** | **$3.05M** |
+| — of which attributable to the model rather than random alerting | **$1.69M** |
+| CO₂ not burned | 331 tonnes |
+
+Scaled to a full year of New York departures: **$18.0M–$19.0M**. The range is
+not decoration. November and December run late more often than the year as a
+whole (25.0% against 23.7%), so the naive annualisation is an upper bound and
+the seasonally discounted figure is the lower one. We do not claim to know
+where in that band the truth sits. We also do not extrapolate to the national
+network: multiplying a three-airport result by the size of the US system would
+be arithmetic, not evidence.
+
+### 9.4 Everything above, swept
+
+![Impact sensitivity](figures/28_impact_sensitivity.png)
+
+Break-even mitigation effectiveness is **0.11%** — and that number is the
+finding, not a victory lap. Handling an alert costs about $6; the delay it
+targets is worth about $568. The system is nowhere near being gated on cost.
+**The binding question is whether advance warning changes an outcome at all**,
+and this dataset cannot answer that, because it records what happened and not
+what would have happened.
+
+One-at-a-time on the external constants, net value stays positive throughout:
+
+| Constant varied | Low | High | Swing |
+|---|---:|---:|---:|
+| Block-minute cost ($70 / $130) | $2.52M | $3.63M | $1.10M |
+| Passenger value of time ($30 / $70) | $2.59M | $3.67M | $1.08M |
+| Desk cost per alert ($2 / $20) | $3.07M | $2.97M | $0.10M |
+
+The conclusion does not depend on any single published figure. It depends
+entirely on the one figure nobody publishes, which is stated plainly rather
+than hidden inside an average.
+
+### 9.5 What this section is not
+
+It is not a business case, and it is not a measured saving. It is a ceiling: the
+value *available* to a desk that acts perfectly on the list, times an assumed
+recovery rate. A real evaluation needs a controlled rollout — alert on a random
+half of the eligible flights and compare — and that is the first thing we would
+build if this went past a hackathon.
+
+---
+
+## 10. Who the alerts reach
+
+A ranking model with a fixed budget is a rationing device, and "highest
+probability first" is not a neutral rule. It gives the budget to whichever
+groups already run late most often, which is efficient and is not the same as
+fair. `src/fairness.py` measures where the alerts land instead of assuming it
+is fine.
+
+![Who the alert budget reaches](figures/29_fairness.png)
+
+### 10.1 Coverage is very uneven across carriers
+
+At a 10% daily budget, the share of a carrier's genuinely-late flights that got
+warned about — the equal-opportunity criterion — ranges from **38.2% to 1.9%**,
+a **36.3-point gap**:
+
+| Carrier | Flights | Ran late | Of those, warned | Share of alerts | Calibration error |
+|---|---:|---:|---:|---:|---:|
+| FL | 410 | 41.5% | 38.2% | 2.3% | −0.158 |
+| EV | 8,272 | 30.6% | 38.2% | 36.3% | −0.078 |
+| B6 | 8,929 | 27.8% | 28.2% | 30.4% | −0.065 |
+| WN | 2,100 | 33.0% | 13.5% | 2.5% | −0.170 |
+| UA | 9,646 | 24.9% | 5.7% | 5.3% | −0.102 |
+| AA | 5,147 | 20.4% | 3.8% | 1.7% | −0.073 |
+| VX | 902 | 23.3% | 1.9% | 0.1% | −0.118 |
+
+Southwest is the clearest case of the failure mode. It runs late on a third of
+its flights — a higher rate than JetBlue — and receives 2.5% of the alerts,
+because the model under-predicts it by 17 points. Its alerts are unusually
+*accurate* when they fire (68.6% precision); there are simply far too few of
+them. That is not a ranking problem the AUC would ever show.
+
+Every group has a negative calibration error, which is the December
+under-prediction of §6 reappearing: the model is not miscalibrated *unevenly*
+so much as miscalibrated *everywhere*, with the size of the miss varying by
+carrier.
+
+### 10.2 Pricing the trade-off instead of naming it
+
+The usual move here is to note the disparity and move on. Instead we
+re-allocated the **same** daily budget so each group receives alerts in
+proportion to its share of that day's departures, ranking by risk within each
+group. Largest-remainder rounding keeps the alert count identical (5,423), and
+the allocation stays per-day, so this is not a pooled rule getting an unfair
+advantage.
+
+| Grouping | Coverage gap, global rule | …proportional | Delay minutes reached | Change |
+|---|---:|---:|---:|---:|
+| Carrier | 36.3% | 6.4% | 183,879 → 162,630 | **−11.6%** |
+| Destination size | 7.9% | 1.4% | 183,879 → 186,269 | **+1.3%** |
+
+Two different answers, and the second is the interesting one. Equalising across
+carriers costs 11.6% of the delay minutes caught — a real trade-off, now priced
+rather than argued about. Equalising across destination-size quartiles
+**gains** 1.3%: for that grouping, fairness is free. That is not a free lunch,
+it is a symptom — it means the global threshold was mis-allocating across those
+groups because the model's calibration differs between them, and evening out
+the budget partially corrects the error.
+
+The recommendation that follows is concrete: **allocate the alert budget
+per-carrier rather than globally**, accept the 11.6% efficiency cost, and treat
+the residual gap as a monitored metric rather than a solved problem.
+
+### 10.3 What we did not check
+
+Passenger-level protected attributes are not in this dataset and cannot be
+inferred from it responsibly, so nothing here is a claim about demographic
+fairness. The groups audited are operational — carrier, destination size,
+aircraft size, time of day, origin airport — and destination size is a proxy
+for passenger slack, not for any characteristic of the people on board.
+
+---
+
+## 11. Running this after the hackathon
+
+### 11.1 What it costs to operate
+
+The deployable classifier is a 5.2 MB LightGBM booster; the full set of heads
+(severity, quantiles, tiers, cancellation) comes to 64 MB on disk, and a
+production deployment needs the first one plus whichever heads it displays. A
+day of New York departures is roughly 900 rows of tabular data. There is no
+GPU, no vector database and no inference API bill. A realistic production
+footprint:
+
+| Component | Requirement | Notes |
+|---|---|---|
+| Nightly retrain | ~10 min, 4 cores | not needed nightly — see §6, recalibration beats retraining |
+| Rolling recalibration | seconds, daily | the piece that actually needs to run daily |
+| Scoring | one batch of ~900 rows per day | a cron job, not a service |
+| Weather feed | hourly METAR/ASOS | free from NOAA; already the input format |
+| Schedule feed | the airline's own timetable | already exists in every ops system |
+| Storage | <100 MB/year of predictions | |
+
+The only genuinely recurring cost is a person to look at the list, which is the
+cost the impact model already charges against the benefit ($6 per alert, swept
+to $20 without changing the sign).
+
+### 11.2 Who maintains it
+
+The maintenance burden is small but not zero, and the honest version is that it
+concentrates in one place: **calibration drift**. §6 showed that the model's
+discrimination survives the seasonal shift while its calibration does not, and
+that a rolling 14-day isotonic recalibration fixes it where retraining does
+not. So the operating procedure is a daily recalibration job on the previous
+fortnight of landed flights, plus the monitoring in §10.1 as a standing
+report. `make verify` exists precisely so that whoever inherits this can tell
+in one command whether it still does what the report says.
+
+### 11.3 Environmental and social effects, both directions
+
+**Environmental.** Recovered delay minutes are unburned fuel. At roughly 18 kg
+CO₂ per delay minute — derived from a narrowbody's idle burn, halved, because
+delay-minute burn runs about half the unimpeded taxi rate[^4] — a 10% budget at
+10% effectiveness avoids **331 tonnes over two months**, or roughly 2,000
+tonnes a year across the three airports. That figure is order-of-magnitude and
+labelled as such; it is swept from 9 to 27 kg/minute in `impact.json`. Against
+it: training the models once costs a few core-hours, which is negligible on any
+comparison.
+
+**Social, and the risk that runs the other way.** A delay-risk score is a
+ranking of flights, and rankings get reused for things they were not validated
+for. Three failure modes are foreseeable and worth naming before somebody
+discovers them:
+
+- *Feedback.* If a carrier is systematically under-alerted (§10.1), its delays
+  go unmitigated, its historical late rate rises, and a retrained model learns
+  the higher rate. Per-carrier budget allocation breaks that loop; global
+  thresholding does not.
+- *Misuse against passengers.* Nothing here should touch an individual
+  passenger — not boarding, not pricing, not compensation eligibility. The
+  model card in the app says so explicitly.
+- *False confidence.* A 47% precision list is a triage aid. Presented as a
+  prediction, it will be wrong slightly more often than it is right, and the
+  app's default view is built around that framing on purpose.
+
+### 11.4 A credible path past the demo
+
+The next step is not a bigger model. It is the one measurement this dataset
+cannot supply:
+
+1. **Swap the persistence weather for a real forecast feed.** §5.6 shows a
+   three-hour horizon costs 0.020 PR-AUC using the crudest possible forecast,
+   so the current numbers are a floor. This is the cheapest available gain.
+2. **Run a randomised rollout.** Alert on a random half of eligible flights and
+   compare outcomes. That measures mitigation effectiveness directly and
+   replaces the one assumption §9 has to sweep.
+3. **Extend beyond three origins.** The BTS on-time database has the same
+   schema for every US airport; the feature code is origin-agnostic, and the
+   inbound-leg blind spot in §8 closes as soon as the network is complete
+   rather than NYC-only.
+4. **Model three outcomes, not two.** §5.7 already shows cancellation is the
+   most predictable outcome in the dataset (ROC-AUC 0.936). A production system
+   should rank on-time / late / cancelled jointly.
+
+Steps 1 and 4 are code we could write with this dataset. Step 2 is the one that
+would turn §9 from a ceiling into a measurement, and it requires an airline.
+
+[^4]: Ryerson, Hansen & Bonn, "Estimating fuel burn impacts of taxi-out delay
+      with implications for gate-hold benefits", *Transportation Research Part
+      C*, 2016 — fuel consumption per minute of taxi *delay* is roughly half
+      the unimpeded taxi rate, so applying nominal taxi burn to delay minutes
+      overstates it. Combined with 9.57 kg CO₂ per gallon of jet fuel (EPA).
+
+---
+
+## 12. Conclusions
 
 **On the problem.** Arrival delay is predictable in advance to a useful but
 bounded degree: PR-AUC 0.507 against a 0.250 base rate, with 64% precision on
@@ -872,11 +1197,31 @@ they are the ones most likely to transfer:
   encodings took 24% of SHAP attribution and were worth −0.0009 PR-AUC (§7.1).
   Only an ablation answers the question "is this data worth collecting".
 
+**On what it is worth.** A 10% daily alert budget reaches 24.2% of all delay
+minutes, against 10.0% for random alerting and 14.6% for a route-level
+historical lookup — 2.4× and 1.65× respectively. At a pessimistic 10%
+mitigation effectiveness that is $3.05M of recovered value over two months,
+$1.69M of it attributable to the model rather than to the budget existing at
+all. Break-even sits at 0.11% effectiveness, which means cost is not what gates
+this system; the open question is whether advance warning changes an outcome at
+all, and no historical dataset can answer it.
+
+**On who it serves.** Ranking purely by probability is a rationing rule with
+winners and losers: coverage of genuinely-late flights ranges from 38.2% to
+1.9% across carriers. Southwest runs late more often than JetBlue and receives
+a fortieth of the alerts, because the model under-predicts it by 17 points —
+a failure invisible in the AUC. Allocating the same budget proportionally cuts
+that gap from 36.3 to 6.4 points for 11.6% of the delay minutes caught, and for
+destination-size quartiles it *gains* 1.3%. That is the recommendation: budget
+per carrier, not globally.
+
 **On deployment.** Ship the pre-flight model with a cost-derived threshold of
 0.20 rather than 0.5 — at the default the model costs 31% more per flight than
 at the tuned threshold, and more than alerting on every flight — and a rolling
 14-day isotonic recalibration, which recovers 5.7% of
 Brier score under the December shift that retraining alone would not catch.
+Allocate the alert budget per carrier, and monitor the coverage gap as a
+standing metric rather than treating it as solved.
 
 ---
 
@@ -907,7 +1252,11 @@ fixed (`SEED = 42` in `src/config.py`); random search draws are seeded, so draw
 | `reports/metrics/segment_errors.csv` | per-segment error analysis |
 | `reports/metrics/threshold_sweep_validation.csv` | full precision/recall/cost curve |
 | `reports/metrics/eda_summary.json` | descriptive statistics |
-| `reports/figures/01–26` | all figures |
+| `reports/metrics/impact.json` | delay minutes, passenger hours, dollars and CO₂ at every budget, with all assumptions swept |
+| `reports/metrics/impact_budget_curve.csv` | the budget curve, model vs historical rule vs random |
+| `reports/metrics/fairness.json` | per-group coverage audit and the priced equity trade-off |
+| `reports/metrics/fairness_*.csv` | one table per grouping |
+| `reports/figures/01–29` | all figures |
 
 ## Appendix C — Test suite
 

@@ -20,6 +20,30 @@ honest one, and it is the number this repository is built around.
 | **Operational result** | Top 10% riskiest flights are **64% late** — a **2.6× lift** |
 | **Cancellations** | ROC-AUC **0.936** — top 10% catches **80% of all cancellations** |
 | **Horizon** | 3 h ahead costs 0.020 PR-AUC; 24 h ahead is worth nothing |
+| **Impact** | A 10%/day alert budget reaches **24.2% of all delay minutes** — **2.4× random**, **1.65×** a no-ML historical lookup |
+| **Equity** | Coverage of late flights ranges **38.2% → 1.9%** across carriers; evening it out costs **11.6%** of the delay caught |
+
+---
+
+## Why this problem
+
+US flight delay costs about **$33 billion a year** — $16.7bn of it borne by
+passengers in lost time, missed connections and unplanned hotels, $8.3bn
+directly by airlines.<sup>[1]</sup> A single minute of delay is $98.41 of
+aircraft operating cost by the carriers' own DOT Form 41 filings,<sup>[2]</sup>
+and passenger time is valued at $47/hour by the FAA's benefit-cost
+guidance.<sup>[3]</sup>
+
+An operations desk at a New York airport oversees several hundred departures a
+day and can act on a few dozen. It does not need a better description of
+yesterday; it needs a ranked list early enough to swap an airframe or hold a
+connection. That constraint — **attention, not knowledge** — is what this
+project is built around, and it is why the model is evaluated as a rationing
+device on a fixed daily budget rather than as a classifier.
+
+<sup>[1]</sup> NEXTOR *Total Delay Impact Study* for the FAA.
+<sup>[2]</sup> [Airlines for America, U.S. Passenger Carrier Delay Costs, 2025](https://www.airlines.org/dataset/u-s-passenger-carrier-delay-costs/).
+<sup>[3]</sup> FAA, *Economic Values for FAA Investment and Regulatory Decisions*, §1.
 
 ---
 
@@ -77,7 +101,9 @@ make explain    # figures 16–22, SHAP + feature-family ablation
 make severity   # figures 23–24, severity tiers + quantile heads
 make horizon    # figure 25, forecast-horizon degradation curve
 make disruption # figure 26, cancellation / diversion / disruption models
-make verify     # 73 checks — determinism, leakage, report-vs-artefact agreement
+make impact     # figures 27-28, delay minutes / passenger hours / $ / CO2
+make fairness   # figure 29, who the alert budget reaches
+make verify     # determinism, leakage, report-vs-artefact agreement
 ```
 
 `make verify` is worth calling out. Beyond the unit tests it confirms that the
@@ -160,12 +186,15 @@ src/
   severity.py     severity tiers, quantile heads, conditional-on-late
   horizon.py      persistence-forecast horizon curve
   cancellations.py  three-outcome disruption model over all 336,776 flights
+  impact.py       delay minutes -> passenger hours -> dollars -> CO2, all swept
+  fairness.py     per-group coverage audit and the priced equity trade-off
 tests/            16 leakage and correctness checks
-app/              Streamlit demo
+app/              Streamlit demo (5 views, colour-blind-safe, text alternatives)
+docs/PITCH.md     three-minute demo script and the questions we expect
 notebooks/        end-to-end walkthrough
 reports/
   report.md       full methodology, results and analysis
-  figures/        26 generated figures
+  figures/        29 generated figures
   metrics/        every number in the report, as JSON/CSV
 ```
 
@@ -240,15 +269,56 @@ Four findings the report develops:
 
 ---
 
+### What a 10% alert budget is worth
+
+The model is only useful if it beats the alternatives an operations desk
+already has, so it is scored against them rather than against zero. Budget is
+spent **per day** — a desk cannot save November's alerts for 22 December —
+which makes the numbers lower and the exercise honest.
+
+| Rule | Precision | Delay minutes reached | Share of all delay |
+|---|---:|---:|---:|
+| Random | 25.0% | 75,965 | 10.0% |
+| Route's historical late rate (no ML) | 31.6% | 111,426 | 14.6% |
+| **This model** | **47.2%** | **183,879** | **24.2%** |
+
+At a deliberately pessimistic 10% mitigation effectiveness that is **$3.05M**
+of recovered value over the two held-out months — $1.81M of airline operating
+cost, 27,015 passenger-hours returned, 331 tonnes of CO₂ — of which **$1.69M is
+attributable to the model** rather than to the budget existing at all. Every
+external constant is swept and the sign never changes. Break-even is 0.11%
+effectiveness, which is the real finding: cost is not what gates this system,
+and whether advance warning changes an outcome is a question no historical
+dataset can answer.
+
+### Who the alerts reach
+
+Ranking by probability is a rationing rule, and it has losers. Coverage of
+genuinely-late flights ranges from **38.2% to 1.9%** across carriers. Southwest
+runs late more often than JetBlue and gets a fortieth of the alerts, because
+the model under-predicts it by 17 points — invisible in the AUC. Spending the
+same budget proportionally cuts the gap to 6.4 points for 11.6% of the delay
+caught; across destination-size quartiles it *gains* 1.3%. Both numbers are
+computed, not asserted (`make fairness`).
+
+---
+
 ## Demo
 
 ```bash
 make app
 ```
 
-Three tabs: a single-flight risk estimate with its SHAP explanation, an
-operations-desk view that ranks a whole day and shows what a fixed alerting
-budget catches, and a model card with the known limitations.
+Five views: a single flight with its reasons in plain English, an
+operations-desk day view with a movable alert budget, the impact model with its
+assumptions exposed as sliders, the equity audit, and a model card.
+
+The interface was designed rather than defaulted. Colour is never the only
+signal — every risk level carries a word and a shape, and the palette is
+Okabe-Ito, which survives all three common forms of colour blindness. Every
+chart has a generated text alternative, not just a caption. Statistics live
+behind "the technical version" expanders so the default reading is plain
+English. High-contrast and larger-text switches are in the sidebar.
 
 ---
 
