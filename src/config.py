@@ -70,6 +70,58 @@ COST_FALSE_NEGATIVE = 4.0
 CAPACITY_FRACTION = 0.10
 
 # --------------------------------------------------------------------------
+# Unit costs for the impact model (src/impact.py)
+# --------------------------------------------------------------------------
+# Every number below is external to this dataset and carries a citation. They
+# are separated from the modelling code on purpose: the model's job is to rank
+# flights, and turning a ranking into dollars is a *policy* layer with its own
+# assumptions. All of them are swept in `src/impact.py` so that no conclusion
+# depends on a single point estimate.
+#
+# [1] Airlines for America, "U.S. Passenger Carrier Delay Costs" (2025 data,
+#     published 2026-07-23). Direct aircraft operating cost per block minute,
+#     from DOT Form 41 filings: crew $37.01 + fuel $29.34 + maintenance $18.35
+#     + ownership $9.76 + other $3.95.
+#     https://www.airlines.org/dataset/u-s-passenger-carrier-delay-costs/
+COST_PER_BLOCK_MINUTE_USD = 98.41
+
+# [2] FAA-recommended value of passenger time, as cited by A4A above.
+#     https://www.faa.gov/sites/faa.gov/files/regulations_policies/policy_guidance/benefit_cost/econ-value-section-1-tx-time.pdf
+PASSENGER_VALUE_OF_TIME_USD_PER_HOUR = 47.0
+
+# [3] BTS domestic load factor, 2013 (~83%). `seats` in the planes table is the
+#     airframe's capacity, not the number of people on board, so we discount it.
+LOAD_FACTOR = 0.831
+
+# [4] Loaded cost of an operations-agent intervention: the desk time to look at
+#     a flagged flight, check the rotation, and act or dismiss. Assumed 6
+#     minutes at a $60/h fully-loaded rate. This is our own assumption, not a
+#     published figure, and it is swept.
+COST_PER_ALERT_USD = 6.0
+
+# [5] Mitigation effectiveness: the share of a warned flight's delay minutes
+#     that advance notice actually recovers (swapping an airframe, protecting a
+#     connection, pre-positioning a crew). No public dataset measures this, so
+#     it is the honest unknown in the model. The headline uses a deliberately
+#     pessimistic 10%; `src/impact.py` sweeps 0-40% and reports the break-even.
+MITIGATION_EFFECTIVENESS = 0.10
+MITIGATION_SWEEP = [0.02, 0.05, 0.10, 0.15, 0.20, 0.30, 0.40]
+
+# [6] CO2 per minute of *delay* (not of nominal taxi). Ryerson, Hansen & Bonn,
+#     "Estimating fuel burn impacts of taxi-out delay" (Transportation Research
+#     Part C, 2016) find delay-minute burn is roughly half the unimpeded taxi
+#     rate. A narrowbody idles at ~3.5 gal/min unimpeded, so ~1.8 gal/min of
+#     delay, at 9.57 kg CO2 per gallon of jet fuel (EPA) => ~18 kg/min.
+#     Order-of-magnitude only; swept 9-27.
+CO2_KG_PER_DELAY_MINUTE = 18.0
+
+# Alert budgets swept in the impact curve (fraction of each day's departures).
+IMPACT_BUDGETS = [0.01, 0.02, 0.05, 0.075, 0.10, 0.15, 0.20, 0.30, 0.50, 1.00]
+
+# Number of seeded permutations used for the random-alerting baseline.
+IMPACT_RANDOM_REPEATS = 40
+
+# --------------------------------------------------------------------------
 # Feature-mode definitions
 # --------------------------------------------------------------------------
 # MODE_A ("day-of planning"): everything is known >= 2 hours before the
