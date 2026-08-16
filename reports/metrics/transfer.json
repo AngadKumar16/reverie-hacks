@@ -1,0 +1,148 @@
+{
+  "EWR": {
+    "held_out_origin": "EWR",
+    "n_train_flights": 138981,
+    "n_test_flights": 19013,
+    "train_origins": [
+      "JFK",
+      "LGA"
+    ],
+    "trees": 454,
+    "transfer": {
+      "pr_auc": 0.49205099682924897,
+      "roc_auc": 0.6740914900500854,
+      "base_rate": 0.2686582864355967,
+      "n_flagged": 1901,
+      "precision_at_10pct": 0.6512361914781694,
+      "recall_at_10pct": 0.24236491777603758,
+      "lift_at_10pct": 2.424031657904157
+    },
+    "within_network": {
+      "pr_auc": 0.5326451316966314,
+      "roc_auc": 0.714158287428087,
+      "base_rate": 0.2686582864355967,
+      "n_flagged": 1901,
+      "precision_at_10pct": 0.6775381378221988,
+      "recall_at_10pct": 0.25215348472983556,
+      "lift_at_10pct": 2.521932774943905
+    },
+    "retention": {
+      "pr_auc": 0.9237876543843024,
+      "roc_auc": 0.8129103577583672,
+      "precision_at_10pct": 0.9611801242236024
+    },
+    "encodings_collapsed_to_prior": [
+      "te_origin_sched_dep_hour",
+      "te_route"
+    ],
+    "encodings_that_transferred": [
+      "te_carrier",
+      "te_carrier_dest",
+      "te_carrier_sched_dep_hour",
+      "te_dest",
+      "te_dest_sched_dep_hour",
+      "te_tailnum"
+    ],
+    "seconds": 12.2
+  },
+  "JFK": {
+    "held_out_origin": "JFK",
+    "n_train_flights": 144100,
+    "n_test_flights": 17568,
+    "train_origins": [
+      "EWR",
+      "LGA"
+    ],
+    "trees": 390,
+    "transfer": {
+      "pr_auc": 0.4025498388328379,
+      "roc_auc": 0.6707977924192695,
+      "base_rate": 0.2354280510018215,
+      "n_flagged": 1756,
+      "precision_at_10pct": 0.520501138952164,
+      "recall_at_10pct": 0.22098646034816247,
+      "lift_at_10pct": 2.210871375510546
+    },
+    "within_network": {
+      "pr_auc": 0.45380457202122293,
+      "roc_auc": 0.6931571938256514,
+      "base_rate": 0.2354280510018215,
+      "n_flagged": 1756,
+      "precision_at_10pct": 0.5928246013667426,
+      "recall_at_10pct": 0.2516924564796905,
+      "lift_at_10pct": 2.518071227468795
+    },
+    "retention": {
+      "pr_auc": 0.8870554940420741,
+      "roc_auc": 0.884242460953517,
+      "precision_at_10pct": 0.8780019212295869
+    },
+    "encodings_collapsed_to_prior": [
+      "te_origin_sched_dep_hour",
+      "te_route"
+    ],
+    "encodings_that_transferred": [
+      "te_carrier",
+      "te_carrier_dest",
+      "te_carrier_sched_dep_hour",
+      "te_dest",
+      "te_dest_sched_dep_hour",
+      "te_tailnum"
+    ],
+    "seconds": 12.4
+  },
+  "LGA": {
+    "held_out_origin": "LGA",
+    "n_train_flights": 152373,
+    "n_test_flights": 17410,
+    "train_origins": [
+      "EWR",
+      "JFK"
+    ],
+    "trees": 153,
+    "transfer": {
+      "pr_auc": 0.5094987830703885,
+      "roc_auc": 0.7278220579360031,
+      "base_rate": 0.24399770246984492,
+      "n_flagged": 1741,
+      "precision_at_10pct": 0.6438828259620908,
+      "recall_at_10pct": 0.2638888888888889,
+      "lift_at_10pct": 2.638888888888889
+    },
+    "within_network": {
+      "pr_auc": 0.5345411316652506,
+      "roc_auc": 0.7399086918026585,
+      "base_rate": 0.24399770246984492,
+      "n_flagged": 1741,
+      "precision_at_10pct": 0.6576680068925904,
+      "recall_at_10pct": 0.2695386064030132,
+      "lift_at_10pct": 2.6953860640301315
+    },
+    "retention": {
+      "pr_auc": 0.9531516900919338,
+      "roc_auc": 0.9496198583893012,
+      "precision_at_10pct": 0.9790393013100438
+    },
+    "encodings_collapsed_to_prior": [
+      "te_origin_sched_dep_hour",
+      "te_route"
+    ],
+    "encodings_that_transferred": [
+      "te_carrier",
+      "te_carrier_dest",
+      "te_carrier_sched_dep_hour",
+      "te_dest",
+      "te_dest_sched_dep_hour",
+      "te_tailnum"
+    ],
+    "seconds": 6.7
+  },
+  "summary": {
+    "mean_retention_pr_auc": 0.9213316128394368,
+    "worst_retention_pr_auc": 0.8870554940420741,
+    "min_transfer_lift_at_10pct": 2.210871375510546,
+    "mean_transfer_pr_auc": 0.4680332062441585,
+    "mean_within_pr_auc": 0.5069969451277017,
+    "all_beat_base_rate": true
+  }
+}

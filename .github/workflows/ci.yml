@@ -1,0 +1,59 @@
+name: CI
+
+# The point of this workflow is the fresh-clone path. Everything in this
+# repository is reproducible on the machine it was written on; what CI adds is
+# proof that a reviewer who clones it and runs the documented commands gets the
+# same thing, on a machine nobody tuned.
+#
+# It deliberately stops before the full pipeline. `make reproduce` takes about
+# fifteen minutes and trains a hundred-odd boosters; running it on every push
+# would burn runner minutes to re-establish a fact `make verify` already
+# establishes locally. What CI checks is the part that breaks silently for
+# somebody else: dependency resolution, data loading, and the leakage suite.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the documented floor. 3.12 dropped `setuptools` from fresh
+        # virtualenvs, which is what broke the dataset loader once already --
+        # so it is pinned here on purpose, as a regression test.
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build the raw tables and the cached splits
+        run: make data PY=python
+
+      - name: Leakage and correctness suite
+        run: make test PY=python
+
+      - name: Confirm the split is the documented one
+        run: |
+          python - <<'PY'
+          import json
+          m = json.load(open("data/processed/manifest.json"))
+          assert m["rows"] == {"train": 217727, "valid": 55628, "test": 53991}, m["rows"]
+          assert len(m["features"]["preflight"]) == 67, len(m["features"]["preflight"])
+          print("split and feature contract match the report")
+          PY

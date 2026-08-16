@@ -75,8 +75,9 @@ One-line answer to "what is it", if that is all there is time for:
 
 **2:50 — Close (10 s)**
 
-> Every number in the report is re-read from a metrics file by `make verify`,
-> and the whole pipeline rebuilds bit-identically from the raw CSVs.
+> Every number in the report is re-read from a metrics file by `make verify` —
+> 119 checks — and the whole pipeline rebuilds bit-identically from the raw
+> CSVs, on two different CPU architectures.
 
 ---
 
@@ -88,6 +89,7 @@ One-line answer to "what is it", if that is all there is time for:
 | **24.2% / 14.6% / 10.0%** | delay minutes reached by model / historical rule / random |
 | **36.3 points** | coverage gap across carriers |
 | **0.936** | cancellation ROC-AUC — the worse the outcome, the better it is predicted |
+| **92%** | skill retained at an airport the model has never seen |
 | **1,115 of 1,153** | metric values identical after a full clean rebuild; the other 38 are all timing fields |
 
 ---
@@ -144,6 +146,24 @@ Not a bigger model. Swap the persistence weather for a real forecast feed —
 we showed a three-hour horizon costs 0.020 PR-AUC using the crudest possible
 forecast, so today's numbers are a floor. Then a randomised rollout to measure
 the one thing we had to assume.
+
+**"Does this only work in New York?"**
+We measured that instead of guessing. Each airport was held out in turn —
+trained, encoded and early-stopped on the other two only — and a model deployed
+where it has no local history keeps **92% of its skill**, never below 89%, with
+the lift in the riskiest 10% holding at 2.2–2.6×. The two origin-keyed
+encodings collapse to the prior by construction and it costs 8%. What transfers
+is weather, congestion and rotation slack. The honest limit: three airports 20
+miles apart share a weather system, so this rules out a lookup table but does
+not prove transfer to Denver.
+
+**"Could you actually run this?"**
+Measured, not estimated. The deployable model is 5.2 MB, a whole day of New
+York departures scores in 12.5 milliseconds, and a hundred times New York's
+volume would take seven seconds of compute a day on one core. Building the
+features costs five times more than running the model, which is where you would
+optimise. Training it once emits about as much carbon as twelve seconds of one
+delayed aircraft idling.
 
 **"What's the weakest part?"**
 Two things. Diversion, at 0.608 — decided in the air by weather at the

@@ -125,8 +125,8 @@
         "recall": 0.05661948376353039,
         "fpr": 0.020706791827719492,
         "precision": 0.4755244755244755,
-        "mean_predicted": 0.14710033310153683,
-        "calibration_error": -0.1019148027060518,
+        "mean_predicted": 0.1471003331015368,
+        "calibration_error": -0.10191480270605183,
         "delay_min_caught_share": 0.08930723252120758
       },
       {
