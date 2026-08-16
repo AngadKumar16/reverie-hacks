@@ -1,7 +1,11 @@
 .PHONY: all setup data test eda train evaluate explain app clean reproduce \
         report notebook verify severity horizon disruption impact fairness
 
-PY ?= python3
+# Default to the project venv. Falling through to a bare `python3` picks up
+# whatever interpreter is on PATH -- typically a conda base env with different
+# pins -- and the cached parquet then fails to load. Override with
+# `make <target> PY=python3` to use the ambient interpreter deliberately.
+PY ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
 all: reproduce
 

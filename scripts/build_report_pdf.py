@@ -2,13 +2,15 @@
 
     python scripts/build_report_pdf.py
 
-Markdown -> HTML via pandoc, HTML -> PDF via WeasyPrint. Kept as a script
+Markdown -> HTML via pandoc, HTML -> PDF via WeasyPrint, falling back to
+headless Chrome when WeasyPrint is not installed. Kept as a script
 rather than a Makefile one-liner because the stylesheet needs to travel with
 it: the report is figure-heavy and the default rendering breaks images across
 page boundaries.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -142,32 +144,106 @@ a { color: #2b5f7a; text-decoration: none; word-break: break-all; }
 """
 
 
+# Headless Chrome is the fallback renderer. WeasyPrint gives a better result --
+# it implements CSS Paged Media, so the @page rules above produce real page
+# numbers -- but on macOS it needs Homebrew's pango, which is a lot of setup for
+# one PDF. Chrome ships on nearly every machine, renders the same HTML and CSS,
+# and only loses the page numbers.
+CHROME_CANDIDATES = [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+    "microsoft-edge",
+]
+
+
+def _find_chrome() -> str | None:
+    for cand in CHROME_CANDIDATES:
+        if "/" in cand:
+            if Path(cand).exists():
+                return cand
+        elif shutil.which(cand):
+            return shutil.which(cand)
+    return None
+
+
+def _render_weasyprint(html: Path) -> bool:
+    try:
+        from weasyprint import HTML as WHTML
+    except ImportError:
+        return False
+    # The stylesheet is embedded in the document, so no `stylesheets=` here.
+    WHTML(filename=str(html), base_url=str(REPORTS)).write_pdf(str(PDF))
+    return True
+
+
+def _render_chrome(html: Path) -> bool:
+    exe = _find_chrome()
+    if exe is None:
+        return False
+    subprocess.run(
+        [exe, "--headless=new", "--disable-gpu", "--no-sandbox",
+         "--no-pdf-header-footer", f"--print-to-pdf={PDF}",
+         html.resolve().as_uri()],
+        check=True, capture_output=True,
+    )
+    return PDF.exists()
+
+
 def build() -> None:
     if not MD.exists():
         raise SystemExit(f"{MD} not found")
 
     # No --standalone: pandoc's template injects its own <h1 class="title">,
     # which would duplicate the H1 already at the top of the markdown.
-    body = subprocess.run(
-        ["pandoc", str(MD), "-f", "gfm", "-t", "html5"],
-        check=True, capture_output=True, text=True,
-    ).stdout
-    HTML.write_text(
+    #
+    # `+footnotes` matters -- §1.1 and §11.3 cite their sources as footnotes,
+    # and the bare gfm reader renders them as literal `[^1]` text.
+    # Older pandoc (< 2.11) rejects `gfm+footnotes` outright, so try the
+    # readers in descending order of fidelity and take the first that runs.
+    body = None
+    for reader in ("gfm+footnotes", "commonmark_x", "gfm"):
+        proc = subprocess.run(["pandoc", str(MD), "-f", reader, "-t", "html5"],
+                              capture_output=True, text=True)
+        if proc.returncode == 0:
+            body = proc.stdout
+            if reader == "gfm":
+                print("note: this pandoc cannot render footnotes; the source "
+                      "citations in §1.1 and §11.3 will appear as [^n] markers. "
+                      "Upgrade pandoc to fix.", file=sys.stderr)
+            break
+    if body is None:
+        raise SystemExit("pandoc failed on every reader; is it installed?")
+
+    # Written next to the figures rather than in /tmp: Chrome resolves relative
+    # image paths against the document's own location and has no equivalent of
+    # WeasyPrint's base_url.
+    html = REPORTS / "_report_build.html"
+    html.write_text(
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        "<title>FlightRisk NYC</title></head><body>" + body + "</body></html>"
-    )
+        "<title>FlightRisk NYC</title><style>" + CSS + "</style></head><body>"
+        + body + "</body></html>")
 
-    css_file = Path(tempfile.gettempdir()) / "_flightrisk_report.css"
-    css_file.write_text(CSS)
+    try:
+        if _render_weasyprint(html):
+            engine = "WeasyPrint"
+        elif _render_chrome(html):
+            engine = "headless Chrome (no page numbers -- "
+            engine += "`pip install weasyprint` for those)"
+        else:
+            raise SystemExit(
+                "No PDF renderer found. Either:\n"
+                "  pip install weasyprint      (macOS also needs: brew install pango)\n"
+                "or install Google Chrome, which this script will use "
+                "automatically.\n"
+                f"The typeset HTML has been left at {html} in the meantime.")
+    finally:
+        if PDF.exists():
+            html.unlink(missing_ok=True)
 
-    from weasyprint import CSS as WCSS, HTML as WHTML
-
-    WHTML(filename=str(HTML), base_url=str(REPORTS)).write_pdf(
-        str(PDF), stylesheets=[WCSS(filename=str(css_file))])
-
-    HTML.unlink(missing_ok=True)
-    css_file.unlink(missing_ok=True)
-    print(f"wrote {PDF} ({PDF.stat().st_size / 1e6:.1f} MB)")
+    print(f"wrote {PDF} ({PDF.stat().st_size / 1e6:.1f} MB) via {engine}")
 
 
 if __name__ == "__main__":

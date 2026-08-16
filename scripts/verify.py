@@ -61,8 +61,18 @@ rb_train, (rb_valid, rb_test), enc = F.add_target_encodings(rb_train, [rb_valid,
 
 
 def digest(df: pd.DataFrame, cols: list[str]) -> str:
+    """Order-sensitive fingerprint of every numeric feature in a split.
+
+    Rounded to 9 decimals before hashing. Hashing raw float bytes makes the
+    check sensitive to a 1-ULP difference in the last bit, which numpy will
+    hand you for free when it dispatches a transcendental function to a
+    different SIMD kernel — a real rebuild is identical to ~1e-16, not to the
+    bit. 9 decimals is far tighter than any drift that would change a model.
+    Adding 0.0 collapses -0.0 onto 0.0, which hash to different bytes.
+    """
     arr = df[cols].select_dtypes(include=[np.number]).to_numpy(dtype="float64")
-    return hashlib.sha256(np.nan_to_num(arr, nan=-9999.0).tobytes()).hexdigest()[:16]
+    arr = np.round(np.nan_to_num(arr, nan=-9999.0), 9) + 0.0
+    return hashlib.sha256(arr.tobytes()).hexdigest()[:16]
 
 
 feats = manifest["features"][MODE_A]
@@ -330,6 +340,15 @@ for path in ["README.md", "reports/report.md", "reports/report.pdf",
              "notebooks/01_walkthrough.ipynb", "tests/test_features.py"]:
     check(f"{path} exists", (ROOT / path).exists())
 
+# A stale PDF is the easiest deliverable to ship by accident: report.md gets
+# edited, `make report` does not get re-run, and the typeset copy a reader
+# actually opens is missing a section.
+_md = (ROOT / "reports" / "report.md")
+_pdf = (ROOT / "reports" / "report.pdf")
+check("report.pdf is newer than report.md",
+      _pdf.exists() and _pdf.stat().st_mtime >= _md.stat().st_mtime,
+      "run `make report`")
+
 readme = (ROOT / "README.md").read_text()
 check("README links the Kaggle dataset",
       "kaggle.com/datasets" in readme and "nyc-flights-2013" in readme)
@@ -346,4 +365,4 @@ if failures:
     for f in failures:
         print(f"  - {f}")
     sys.exit(1)
-print(f"All {len(claims) + 26} checks passed.")
+print(f"All {len(claims) + 27} checks passed.")

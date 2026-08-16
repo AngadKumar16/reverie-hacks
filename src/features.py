@@ -186,8 +186,21 @@ def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
     # Red-eye departures behave very differently from the morning bank.
     df["is_redeye"] = ((df["hour"] >= 22) | (df["hour"] <= 4)).astype(int)
     # Cyclical encodings so that 23:00 and 00:00 are neighbours.
-    df["dep_hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
-    df["dep_hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
+    #
+    # Evaluated on the 24 distinct hour values and mapped back rather than
+    # called on the full 300k-row column. Applying np.sin to a large array lets
+    # numpy dispatch to a vectorised SIMD kernel whose last bit differs from
+    # the scalar libm result, so the same input produced -0.4999999999999997 on
+    # one run and -0.4999999999999998 on the next. A 1-ULP wobble is harmless
+    # to the model and fatal to a byte-exact determinism hash. Rounding to 12
+    # decimals pins the value on any BLAS build.
+    hours = np.arange(24)
+    sin_by_hour = {int(h): v for h, v in
+                   zip(hours, np.round(np.sin(2 * np.pi * hours / 24), 12))}
+    cos_by_hour = {int(h): v for h, v in
+                   zip(hours, np.round(np.cos(2 * np.pi * hours / 24), 12))}
+    df["dep_hour_sin"] = df["hour"].map(sin_by_hour).astype("float64")
+    df["dep_hour_cos"] = df["hour"].map(cos_by_hour).astype("float64")
     return df
 
 
