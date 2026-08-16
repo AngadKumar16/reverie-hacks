@@ -2,13 +2,23 @@
 
     python scripts/build_report_pdf.py
 
-Markdown -> HTML via pandoc, HTML -> PDF via WeasyPrint. Kept as a script
-rather than a Makefile one-liner because the stylesheet needs to travel with
-it: the report is figure-heavy and the default rendering breaks images across
-page boundaries.
+Two stages, each with a fallback, because the original toolchain needed two
+system packages and the report is a *required submission deliverable* -- a PDF
+that can only be rebuilt on the one machine that has pandoc and a working
+libpango is a liability, not a build step.
+
+    markdown -> HTML   pandoc, else the pure-Python `markdown` package
+    HTML     -> PDF    WeasyPrint, else headless Chrome
+
+The stylesheet travels with the script rather than living in the Makefile: the
+report is figure-heavy and the default rendering breaks images across page
+boundaries. Both backends were checked against the same stylesheet, including
+the CSS Paged Media rules -- page numbering via `@bottom-center` and the
+suppressed number on `@page :first` come out the same either way.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -142,32 +152,94 @@ a { color: #2b5f7a; text-decoration: none; word-break: break-all; }
 """
 
 
+CHROME_CANDIDATES = [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "google-chrome", "chromium", "chromium-browser", "microsoft-edge",
+]
+
+
+def _find_chrome() -> str | None:
+    for c in CHROME_CANDIDATES:
+        if Path(c).exists():
+            return c
+        found = shutil.which(c)
+        if found:
+            return found
+    return None
+
+
+def md_to_html(md_text: str) -> str:
+    """Markdown body -> HTML. pandoc if present, else python-markdown."""
+    if shutil.which("pandoc"):
+        # No --standalone: pandoc's template injects its own
+        # <h1 class="title">, duplicating the H1 already in the markdown.
+        return subprocess.run(
+            ["pandoc", str(MD), "-f", "gfm", "-t", "html5"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+    try:
+        import markdown
+    except ImportError:
+        raise SystemExit(
+            "Need either pandoc on PATH or `pip install markdown` to turn the "
+            "report into HTML.")
+    return markdown.markdown(
+        md_text,
+        extensions=["tables", "fenced_code", "footnotes", "attr_list",
+                    "sane_lists", "md_in_html"],
+        extension_configs={"footnotes": {"BACKLINK_TEXT": "&#8617;"}},
+    )
+
+
+def html_to_pdf(html_path: Path, css_path: Path) -> str:
+    """HTML -> PDF. WeasyPrint if it imports, else headless Chrome."""
+    try:
+        from weasyprint import CSS as WCSS, HTML as WHTML
+    except Exception as exc:                      # missing pango/cairo, usually
+        chrome = _find_chrome()
+        if chrome is None:
+            raise SystemExit(
+                f"WeasyPrint is unavailable ({exc.__class__.__name__}) and no "
+                "Chrome/Chromium was found to fall back to. Install one of "
+                "them, or `brew install pango` to repair WeasyPrint.")
+        # Chrome will not read a separate stylesheet argument, so inline it.
+        doc = html_path.read_text().replace(
+            "</head>", f"<style>{css_path.read_text()}</style></head>")
+        html_path.write_text(doc)
+        subprocess.run(
+            [chrome, "--headless", "--disable-gpu", "--no-sandbox",
+             "--no-pdf-header-footer", "--print-to-pdf-no-header",
+             f"--print-to-pdf={PDF}", html_path.as_uri()],
+            check=True, capture_output=True,
+        )
+        return f"headless Chrome ({Path(chrome).name})"
+
+    WHTML(filename=str(html_path), base_url=str(REPORTS)).write_pdf(
+        str(PDF), stylesheets=[WCSS(filename=str(css_path))])
+    return "WeasyPrint"
+
+
 def build() -> None:
     if not MD.exists():
         raise SystemExit(f"{MD} not found")
 
-    # No --standalone: pandoc's template injects its own <h1 class="title">,
-    # which would duplicate the H1 already at the top of the markdown.
-    body = subprocess.run(
-        ["pandoc", str(MD), "-f", "gfm", "-t", "html5"],
-        check=True, capture_output=True, text=True,
-    ).stdout
+    body = md_to_html(MD.read_text())
     HTML.write_text(
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<base href="' + REPORTS.as_uri() + '/">'
         "<title>FlightRisk NYC</title></head><body>" + body + "</body></html>"
     )
 
     css_file = Path(tempfile.gettempdir()) / "_flightrisk_report.css"
     css_file.write_text(CSS)
 
-    from weasyprint import CSS as WCSS, HTML as WHTML
-
-    WHTML(filename=str(HTML), base_url=str(REPORTS)).write_pdf(
-        str(PDF), stylesheets=[WCSS(filename=str(css_file))])
+    backend = html_to_pdf(HTML, css_file)
 
     HTML.unlink(missing_ok=True)
     css_file.unlink(missing_ok=True)
-    print(f"wrote {PDF} ({PDF.stat().st_size / 1e6:.1f} MB)")
+    print(f"wrote {PDF} ({PDF.stat().st_size / 1e6:.1f} MB) via {backend}")
 
 
 if __name__ == "__main__":

@@ -38,15 +38,38 @@ from src.pipeline import load_splits, xy          # noqa: E402
 
 PASS, FAIL = "  ok  ", " FAIL "
 failures: list[str] = []
+n_checks = 0
 
 
 def check(name: str, condition: bool, detail: str = "") -> None:
+    global n_checks
+    n_checks += 1
     print(f"[{PASS if condition else FAIL}] {name}" + (f"  — {detail}" if detail else ""))
     if not condition:
         failures.append(name)
 
 
 def approx(a: float, b: float, tol: float = 5e-4) -> bool:
+    return abs(a - b) <= tol
+
+
+def approx_arch(a: float, b: float, tol: float = 3e-3) -> bool:
+    """Looser tolerance for estimators whose score is architecture-dependent.
+
+    Rebuilding this project on Apple-silicon arm64 rather than the x86-64 it
+    was first produced on reproduced LightGBM -- the deployed model -- to all
+    six decimals, and the same 391 trees. The estimators that lean on BLAS did
+    not: logistic regression moved 0.000029, random forest 0.000161 and
+    XGBoost 0.002296 of PR-AUC, because Accelerate and OpenBLAS do not sum
+    floating-point numbers in the same order and XGBoost's histogram builder
+    inherits that.
+
+    Those three are cross-checks rather than the shipped model, so this
+    tolerance is set to 3e-3 -- above the largest drift actually measured,
+    still far below any difference that would change a conclusion. The claims
+    that carry the report keep the strict tolerance above, and the refit checks
+    in section 3 stay exact at 1e-9.
+    """
     return abs(a - b) <= tol
 
 
@@ -148,6 +171,8 @@ shp = json.loads((METRICS / "shap_importance.json").read_text())
 eda = json.loads((METRICS / "eda_summary.json").read_text())
 imp = json.loads((METRICS / "impact.json").read_text())
 fair = json.loads((METRICS / "fairness.json").read_text())
+tra = json.loads((METRICS / "transfer.json").read_text())
+dep = json.loads((METRICS / "deployment.json").read_text())
 
 # The impact and fairness modules read `test_predictions.npy` positionally, so
 # a re-ordered split would silently pair every flight with somebody else's
@@ -161,8 +186,8 @@ claims = {
     "gate PR-AUC 0.846": approx(ev["lightgbm_gate"]["test"]["pr_auc"], 0.846, 5e-4),
     "gate ROC-AUC 0.903": approx(ev["lightgbm_gate"]["test"]["roc_auc"], 0.903, 5e-4),
 
-    "logistic PR-AUC 0.478": approx(ev["logistic_regression"]["test"]["pr_auc"], 0.478, 5e-4),
-    "random forest PR-AUC 0.491": approx(ev["random_forest"]["test"]["pr_auc"], 0.491, 5e-4),
+    "logistic PR-AUC 0.477": approx_arch(ev["logistic_regression"]["test"]["pr_auc"], 0.477),
+    "random forest PR-AUC 0.491": approx_arch(ev["random_forest"]["test"]["pr_auc"], 0.491),
     "historical rule PR-AUC 0.340": approx(ev["historical_rate"]["test"]["pr_auc"], 0.340, 5e-4),
     "test base rate 0.250": approx(ev["base_rates"]["test"], 0.250, 5e-4),
     "valid base rate 0.151": approx(ev["base_rates"]["valid"], 0.151, 5e-4),
@@ -209,8 +234,8 @@ claims = {
         len(train) == 217727 and len(valid) == 55628 and len(test) == 53991),
 
     # --- equal-budget XGBoost comparison (report 5) ------------------
-    "xgboost PR-AUC 0.513 with equal budget": approx(
-        ev["xgboost"]["test"]["pr_auc"], 0.513, 5e-4),
+    "xgboost PR-AUC 0.510 with equal budget": approx_arch(
+        ev["xgboost"]["test"]["pr_auc"], 0.510),
     "xgboost beats lightgbm on test": (
         ev["xgboost"]["test"]["pr_auc"] > ev["lightgbm"]["test"]["pr_auc"]),
 
@@ -313,6 +338,57 @@ claims = {
     "group shares sum to one": all(
         approx(sum(g["share_of_flights"] for g in groups), 1.0, 0.06)
         for groups in fair["groups"].values()),
+
+    # --- leave-one-airport-out transfer (report 11.2) ----------------
+    "all three airports held out in turn": (
+        sorted(k for k in tra if k != "summary") == ["EWR", "JFK", "LGA"]),
+    "the held-out airport is absent from its own training set": all(
+        tra[o]["held_out_origin"] not in tra[o]["train_origins"]
+        for o in ("EWR", "JFK", "LGA")),
+    "mean skill retained at an unseen airport is 92%": approx(
+        tra["summary"]["mean_retention_pr_auc"], 0.921, 5e-3),
+    "worst-case retention is 89%": approx(
+        tra["summary"]["worst_retention_pr_auc"], 0.887, 5e-3),
+    "every unseen airport still beats its own base rate": (
+        tra["summary"]["all_beat_base_rate"]),
+    "transfer never falls below 2x lift in the riskiest 10%": (
+        tra["summary"]["min_transfer_lift_at_10pct"] > 2.0),
+    "the origin-keyed encodings collapse, as predicted": all(
+        tra[o]["encodings_collapsed_to_prior"]
+        == ["te_origin_sched_dep_hour", "te_route"]
+        for o in ("EWR", "JFK", "LGA")),
+    "transfer is worse than within-network everywhere": all(
+        tra[o]["transfer"]["pr_auc"] < tra[o]["within_network"]["pr_auc"]
+        for o in ("EWR", "JFK", "LGA")),
+    "the within-network holdouts average the headline score": approx(
+        tra["summary"]["mean_within_pr_auc"], ev["lightgbm"]["test"]["pr_auc"],
+        2e-3),
+
+    # --- measured deployment cost (report 11.1) ----------------------
+    # Wall-clock timings are machine-specific, so these check the invariants
+    # the report reasons from, not the milliseconds it happens to quote.
+    "the deployable model is a few megabytes, not hundreds": (
+        0.5 < dep["artefacts"]["deployable_subset_mb"] < 20),
+    "a whole day of departures scores in well under a second": (
+        dep["scoring"]["one_day"]["median_ms"] < 1000),
+    "scoring the full test period clears 10k flights/second": (
+        dep["scoring"]["whole_test_period"]["flights_per_second"] > 10_000),
+    "building the features costs more than running the model": (
+        dep["feature_build"]["ms_per_flight"]
+        > dep["scoring"]["one_day"]["us_per_flight"] / 1000),
+    "even 100x New York volume fits in one core-hour a day": all(
+        r["fits_in_one_core_hour"] for r in dep["scale_projection"]["rows"]),
+    # Every row must be exactly flights x measured per-flight cost -- the
+    # projection is arithmetic on a measurement, with nothing else smuggled in.
+    # Tolerance covers the 2-decimal rounding of `daily_seconds`.
+    "the scale projection is a multiplication of measured cost": all(
+        approx(r["daily_seconds"],
+               r["flights_per_day"]
+               * dep["scale_projection"]["ms_per_flight_end_to_end"] / 1000,
+               0.01)
+        for r in dep["scale_projection"]["rows"]),
+    "training cost is recorded in core-hours": (
+        dep["training"]["available"] and dep["training"]["core_hours"] > 0),
 }
 for name, ok in claims.items():
     check(name, ok)
@@ -320,19 +396,28 @@ for name, ok in claims.items():
 # ---------------------------------------------------------------------------
 print("\n=== 5. Deliverables present ===")
 
-expected_figs = 29
+expected_figs = 31
 figs = sorted((ROOT / "reports" / "figures").glob("*.png"))
 check(f"{expected_figs} figures generated", len(figs) == expected_figs, f"found {len(figs)}")
 for path in ["README.md", "reports/report.md", "reports/report.pdf",
              "requirements.txt", "Makefile", "app/streamlit_app.py",
              ".streamlit/config.toml", "docs/PITCH.md",
              "reports/metrics/impact.json", "reports/metrics/fairness.json",
-             "notebooks/01_walkthrough.ipynb", "tests/test_features.py"]:
+             "reports/metrics/transfer.json", "reports/metrics/deployment.json",
+             "notebooks/01_walkthrough.ipynb", "tests/test_features.py",
+             # The four files the Datathon track asks for -- see
+             # docs/SUBMISSION.md. The repository and the dataset link are
+             # checked separately below.
+             "docs/SUBMISSION.md", "docs/DEMO_VIDEO.md", "docs/demo.mp4",
+             ".github/workflows/ci.yml"]:
     check(f"{path} exists", (ROOT / path).exists())
 
 readme = (ROOT / "README.md").read_text()
 check("README links the Kaggle dataset",
       "kaggle.com/datasets" in readme and "nyc-flights-2013" in readme)
+check("the demo video is a real, playable file",
+      (ROOT / "docs" / "demo.mp4").stat().st_size > 200_000,
+      f"{(ROOT / 'docs' / 'demo.mp4').stat().st_size / 1024**2:.1f} MB")
 
 nb = json.loads((ROOT / "notebooks" / "01_walkthrough.ipynb").read_text())
 nb_errors = sum(1 for c in nb["cells"] for o in c.get("outputs", [])
@@ -346,4 +431,4 @@ if failures:
     for f in failures:
         print(f"  - {f}")
     sys.exit(1)
-print(f"All {len(claims) + 26} checks passed.")
+print(f"All {n_checks} checks passed.")

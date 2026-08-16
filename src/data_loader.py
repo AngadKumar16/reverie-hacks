@@ -17,8 +17,10 @@ FAA aircraft registry and ASOS/NOAA hourly weather observations.
 """
 from __future__ import annotations
 
+import importlib.util
 import logging
 import sys
+from pathlib import Path
 from typing import Dict
 
 import pandas as pd
@@ -28,6 +30,16 @@ from src.config import DATA_RAW
 log = logging.getLogger(__name__)
 
 TABLES = ["flights", "weather", "planes", "airports", "airlines"]
+
+# The filenames the `nycflights13` wheel ships in its ``data/`` directory.
+# ``flights`` is zipped; the other four are plain CSVs.
+_PACKAGE_FILES = {
+    "flights": "flights.csv.zip",
+    "weather": "weather.csv",
+    "planes": "planes.csv",
+    "airports": "airports.csv",
+    "airlines": "airlines.csv",
+}
 
 # Expected row counts -- a cheap integrity check that we loaded the real thing.
 EXPECTED_SHAPES = {
@@ -39,17 +51,45 @@ EXPECTED_SHAPES = {
 }
 
 
+def _package_data_dir() -> Path | None:
+    """Locate the ``data/`` directory inside an installed ``nycflights13``.
+
+    Deliberately does *not* ``import nycflights13``. That package's ``__init__``
+    imports ``pkg_resources``, which is absent from a fresh Python 3.12+
+    virtualenv -- setuptools stopped being installed by default, and
+    ``pkg_resources`` is deprecated under PEP 632. Importing it therefore fails
+    with ``ModuleNotFoundError: pkg_resources`` on a current Python even though
+    the package and its data are sitting right there on disk.
+
+    ``find_spec`` resolves the install location without executing the module,
+    and the five tables are plain files in it, so reading them directly makes
+    the no-Kaggle-account path work on every supported Python.
+    """
+    spec = importlib.util.find_spec("nycflights13")
+    if spec is None or not spec.origin:
+        return None
+    data_dir = Path(spec.origin).parent / "data"
+    return data_dir if data_dir.is_dir() else None
+
+
 def _from_package() -> Dict[str, pd.DataFrame]:
-    try:
-        import nycflights13 as nyc
-    except ImportError as exc:  # pragma: no cover - environment guard
+    data_dir = _package_data_dir()
+    if data_dir is None:
         raise SystemExit(
             "Neither CSVs in data/raw/ nor the `nycflights13` package were found.\n"
             "Fix with either:\n"
-            "  pip install nycflights13\n"
+            "  pip install -r requirements.txt\n"
             "or download the Kaggle dataset listed in the README into data/raw/."
-        ) from exc
-    return {name: getattr(nyc, name).copy() for name in TABLES}
+        )
+    missing = [f for f in _PACKAGE_FILES.values() if not (data_dir / f).exists()]
+    if missing:
+        raise SystemExit(
+            f"`nycflights13` is installed at {data_dir} but is missing "
+            f"{', '.join(missing)}.\nReinstall it, or download the Kaggle "
+            "dataset listed in the README into data/raw/."
+        )
+    return {name: pd.read_csv(data_dir / fname)
+            for name, fname in _PACKAGE_FILES.items()}
 
 
 def _from_csv() -> Dict[str, pd.DataFrame]:

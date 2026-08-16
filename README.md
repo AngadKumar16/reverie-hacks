@@ -1,5 +1,11 @@
 # FlightRisk NYC — predicting arrival delay *before* the aircraft moves
 
+**ReverieHacks 2026 · Datathon track.** Submission index:
+[**report**](reports/report.md) ([PDF](reports/report.pdf)) ·
+[**demo video**](docs/demo.mp4) ·
+[**dataset**](https://www.kaggle.com/datasets/aephidayatuloh/nyc-flights-2013) ·
+[**how this maps to the judging criteria**](docs/SUBMISSION.md)
+
 Will a flight leaving JFK, LaGuardia or Newark arrive more than 15 minutes
 late? This project answers that at the **scheduled departure time, before
 push-back** — the only moment at which the answer is still useful for planning.
@@ -16,12 +22,14 @@ honest one, and it is the number this repository is built around.
 | **Task** | Binary classification: arrival delay > 15 min (the FAA on-time definition) |
 | **Split** | Temporal — train Jan–Aug, validate Sep–Oct, test Nov–Dec |
 | **Best model** | Gradient boosting, 67 pre-flight features, 40-draw random search per library |
-| **Held-out result** | ROC-AUC **0.716**, PR-AUC **0.507** (XGBoost 0.513) against a 25.0% base rate |
+| **Held-out result** | ROC-AUC **0.716**, PR-AUC **0.507** (XGBoost 0.510) against a 25.0% base rate |
 | **Operational result** | Top 10% riskiest flights are **64% late** — a **2.6× lift** |
 | **Cancellations** | ROC-AUC **0.936** — top 10% catches **80% of all cancellations** |
 | **Horizon** | 3 h ahead costs 0.020 PR-AUC; 24 h ahead is worth nothing |
 | **Impact** | A 10%/day alert budget reaches **24.2% of all delay minutes** — **2.4× random**, **1.65×** a no-ML historical lookup |
 | **Equity** | Coverage of late flights ranges **38.2% → 1.9%** across carriers; evening it out costs **11.6%** of the delay caught |
+| **Transfer** | At an airport it has **never seen**, the model keeps **92%** of its skill (worst case 89%) |
+| **Cost to run** | A whole day of departures scores in **12.5 ms**; 100× New York's volume is **7 s/day** |
 
 ---
 
@@ -103,8 +111,14 @@ make horizon    # figure 25, forecast-horizon degradation curve
 make disruption # figure 26, cancellation / diversion / disruption models
 make impact     # figures 27-28, delay minutes / passenger hours / $ / CO2
 make fairness   # figure 29, who the alert budget reaches
+make transfer   # figure 30, does it work at an airport it has never seen?
+make cost       # figure 31, measured latency, memory, size and energy
 make verify     # determinism, leakage, report-vs-artefact agreement
 ```
+
+Two deliverables are committed but regenerable, and their tooling is kept out of
+the pinned analysis environment: `pip install -r requirements-docs.txt` then
+`make report` (PDF) or `make video` (`docs/demo.mp4`).
 
 `make verify` is worth calling out. Beyond the unit tests it confirms that the
 feature pipeline rebuilds bit-identically from the raw tables, that a fresh
@@ -128,13 +142,45 @@ was deleted and the whole pipeline re-run from the raw tables:
 | All 40 LightGBM search draws | bit-identical CV scores |
 | All 8 XGBoost search draws (of the 8 run at the time) | bit-identical CV scores |
 | Parquet splits, `training_context`, RF / logistic / XGBoost pickles | byte-identical |
-| LightGBM booster SHA-256 | `32235056eebd…` before and after |
+| LightGBM booster SHA-256 | `4207af627f47…` before and after |
 
 One honest caveat: a joblib pickle of an `LGBMClassifier` is *not* byte-stable
 even when training is fully deterministic — the container carries incidental
 state. The booster's own serialised model string **is** stable, so
 `reports/metrics/model_fingerprints.json` records its SHA-256 and `make verify`
 checks it. That is the checksum to compare after a rebuild.
+
+### The same test on a different CPU architecture
+
+The rebuild above holds one machine fixed, which only proves the pipeline is
+deterministic — not that anyone else gets these numbers. So the whole thing was
+also rebuilt from scratch on Apple-silicon **arm64**, having originally been
+produced on **x86-64**, with the same pinned library versions:
+
+| Model | x86-64 | arm64 | Δ PR-AUC |
+|---|---:|---:|---:|
+| **LightGBM (the deployed model)** | 0.506994 | 0.506994 | **0.000000** |
+| LightGBM, post-push-back | 0.846044 | 0.846044 | **0.000000** |
+| Historical-rate rule | 0.339513 | 0.339513 | **0.000000** |
+| Logistic regression | 0.477514 | 0.477485 | −0.000029 |
+| Random forest | 0.491397 | 0.491237 | −0.000161 |
+| XGBoost | 0.512774 | 0.510477 | −0.002296 |
+
+The model this project actually ships reproduces to **all six decimals across
+two CPU architectures**, on the same 391 trees. What moves is the estimators
+that lean on BLAS: Accelerate and OpenBLAS do not sum floating-point numbers in
+the same order, and XGBoost's histogram builder inherits that. All three are
+cross-checks rather than the deployed model, and the largest drift is 0.0023 —
+so `scripts/verify.py` holds them to a documented 3e-3 tolerance and everything
+else to 5e-4, with the refit checks exact at 1e-9.
+
+One thing that is *not* portable: the booster's SHA-256. Identical predictions
+and identical tree count still serialise to a different string across
+architectures, so the fingerprint is the right check for "did this machine
+rebuild the same model" and the wrong one for "did two machines agree". The
+score comparison above is the portable check. `make verify` regenerates
+`model_fingerprints.json` during `make train`, so it compares like with like on
+whatever machine it runs on.
 
 Determinism holds on identical library versions (pinned in
 `requirements.txt`). Different LightGBM or NumPy builds may shift the last
@@ -188,14 +234,21 @@ src/
   cancellations.py  three-outcome disruption model over all 336,776 flights
   impact.py       delay minutes -> passenger hours -> dollars -> CO2, all swept
   fairness.py     per-group coverage audit and the priced equity trade-off
+  transfer.py     leave-one-airport-out: skill at an airport never seen
+  deploy_cost.py  measured size, latency, memory, throughput and energy
 tests/            16 leakage and correctness checks
 app/              Streamlit demo (5 views, colour-blind-safe, text alternatives)
-docs/PITCH.md     three-minute demo script and the questions we expect
 notebooks/        end-to-end walkthrough
+docs/
+  SUBMISSION.md   the four required files, and the judging-criteria map
+  PITCH.md        three-minute demo script and the questions we expect
+  DEMO_VIDEO.md   recording guide for the screencast
+  demo.mp4        84 s captioned walkthrough, generated by `make video`
 reports/
   report.md       full methodology, results and analysis
-  figures/        29 generated figures
+  figures/        31 generated figures
   metrics/        every number in the report, as JSON/CSV
+.github/          CI: fresh-clone install, data build and leakage suite
 ```
 
 ---
@@ -209,10 +262,10 @@ All figures are on the untouched Nov–Dec 2013 test period (53,991 flights,
 |---|---|---|---|
 | Base rate (no model) | 0.250 | 0.500 | 0.188 |
 | Historical-rate rule | 0.340 | 0.621 | 0.182 |
-| Logistic regression | 0.478 | 0.708 | 0.166 |
-| Random forest | 0.491 | 0.713 | 0.164 |
+| Logistic regression | 0.477 | 0.708 | 0.165 |
+| Random forest | 0.491 | 0.712 | 0.164 |
 | LightGBM (tuned) | 0.507 | 0.716 | 0.167 |
-| **XGBoost (tuned)** | **0.513** | **0.719** | 0.168 |
+| **XGBoost (tuned)** | **0.510** | **0.720** | 0.172 |
 | *LightGBM, post-push-back* | *0.846* | *0.903* | *0.097* |
 
 ### The worse the outcome, the better it is predicted
@@ -300,6 +353,46 @@ the model under-predicts it by 17 points — invisible in the AUC. Spending the
 same budget proportionally cuts the gap to 6.4 points for 11.6% of the delay
 caught; across destination-size quartiles it *gains* 1.3%. Both numbers are
 computed, not asserted (`make fairness`).
+
+### Does it work at an airport it has never seen?
+
+The claim that this extends past New York used to be a statement about the code
+being origin-agnostic. It is now a measurement. Each airport is held out in
+turn: trained on the other two, historical-rate encodings refitted on the other
+two, early-stopped on the other two, then scored on the held-out airport's
+Nov–Dec flights.
+
+| Held out | Never-seen PR-AUC | Full-network PR-AUC | Skill retained | Lift @10% |
+|---|---:|---:|---:|---:|
+| EWR | 0.492 | 0.533 | **92.4%** | 2.42× |
+| JFK | 0.403 | 0.454 | **88.7%** | 2.21× |
+| LGA | 0.510 | 0.535 | **95.3%** | 2.64× |
+
+**A model deployed where it has no local history keeps 92% of its skill**, and
+the operational lift holds at 2.2–2.6×. The two origin-keyed encodings collapse
+to the global prior by construction and it costs 8% — consistent with the
+ablation, where dropping the entire historical-rate family cost nothing. What
+transfers is weather, congestion and rotation slack; what does not is local
+history, and it turns out not to matter much. The limit is honest: three
+airports 20 miles apart share a weather system, so this rules out a lookup table
+but does not prove transfer to Denver.
+
+### What it costs to run
+
+Measured, not estimated (`make cost`):
+
+| | |
+|---|---|
+| Deployable artefacts | **5.2 MB** |
+| Scoring one day of departures | **12.5 ms** (p95 15.9 ms) |
+| Scoring the whole test period | 0.60 s — **90,816 flights/s** |
+| Feature build vs model scoring | 0.067 vs 0.014 ms per flight |
+| Training the model, once | 0.33 core-hours ≈ **0.6–3.7 g CO₂** |
+| 100× New York's volume | **7.2 s of compute per day** |
+
+Building the features costs five times more than running the model, which is
+the opposite of where people expect the time to go. Training this model emits
+about as much carbon as twelve seconds of one delayed aircraft idling.
 
 ---
 

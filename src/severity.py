@@ -95,7 +95,12 @@ def step_quantile(train, valid, test, feats, params, results, deadline) -> bool:
     block = results.setdefault("quantile", {})
     for q in QUANTILES:
         key = f"p{int(q * 100)}"
-        if key in block:
+        # Resume only if the *artefact* is also on disk, not merely the recorded
+        # score. `reports/metrics/` is committed to the repository while
+        # `models/` is generated, so on a fresh clone this block is already
+        # populated with no boosters behind it -- and the figures below load
+        # those boosters.
+        if key in block and (MODELS / f"lightgbm_quantile_{key}.joblib").exists():
             continue
         if deadline and time.time() > deadline:
             return False
@@ -138,7 +143,7 @@ def step_tiers(train, valid, test, feats, params, results, deadline) -> bool:
     block = results.setdefault("tiers", {})
     for t in TIERS:
         key = f"gt{t}"
-        if key in block:
+        if key in block and (MODELS / f"lightgbm_tier_{key}.joblib").exists():
             continue
         if deadline and time.time() > deadline:
             return False
@@ -178,7 +183,8 @@ def step_tiers(train, valid, test, feats, params, results, deadline) -> bool:
 
 def step_conditional(train, valid, test, feats, params, results, deadline) -> bool:
     """Magnitude given lateness. Trained only on flights that were late."""
-    if "conditional" in results:
+    if ("conditional" in results
+            and (MODELS / "lightgbm_conditional_delay.joblib").exists()):
         return True
     if deadline and time.time() > deadline:
         return False

@@ -389,10 +389,10 @@ All numbers on the untouched Nov–Dec test period: 53,991 flights, 25.0% late.
 |---|---:|---:|---:|---:|
 | Base rate | 0.250 | 0.500 | 0.188 | 0.562 |
 | Historical-rate rule | 0.340 | 0.621 | 0.182 | 0.547 |
-| Logistic regression | 0.478 | 0.708 | 0.166 | 0.509 |
-| Random forest | 0.491 | 0.713 | **0.164** | **0.504** |
+| Logistic regression | 0.477 | 0.708 | 0.165 | 0.509 |
+| Random forest | 0.491 | 0.712 | **0.164** | **0.504** |
 | LightGBM (tuned) | 0.507 | 0.716 | 0.167 | 0.519 |
-| **XGBoost (tuned)** | **0.513** | **0.719** | 0.168 | 0.518 |
+| **XGBoost (tuned)** | **0.510** | **0.720** | 0.172 | 0.538 |
 | *LightGBM, post-push-back* | *0.846* | *0.903* | *0.097* | *0.327* |
 
 ![ROC and PR curves](figures/08_roc_pr_curves.png)
@@ -401,7 +401,7 @@ Reading these honestly:
 
 - The tuned model doubles PR-AUC over the base rate (0.507 against 0.250) and
   beats the no-machine-learning rule by half again (0.340).
-- **The gain from gradient boosting over logistic regression is 0.029 PR-AUC.**
+- **The gain from gradient boosting over logistic regression is 0.030 PR-AUC.**
   Real, but small next to the 0.138 that logistic regression itself gains over
   the historical-rate rule. Most of the value came from constructing the
   features, not from the model class.
@@ -413,7 +413,7 @@ Reading these honestly:
   `grow_policy="lossguide"` so both grow leaf-wise, and `enable_categorical`
   so both see the same representation, XGBoost is ahead on cross-validation at
   every percentile (median draw 0.5371 against 0.5328) and on the test set
-  (0.513 against 0.507). The gap is small, but the lesson is not: **a
+  (0.510 against 0.507). The gap is small, but the lesson is not: **a
   library comparison is mostly a comparison of the search budget and the
   feature representation each library was given.** Ours was accidentally
   rigged, and it took deliberately re-levelling it to notice.
@@ -1065,18 +1065,61 @@ for passenger slack, not for any characteristic of the people on board.
 
 ### 11.1 What it costs to operate
 
-The deployable classifier is a 5.2 MB LightGBM booster; the full set of heads
-(severity, quantiles, tiers, cancellation) comes to 64 MB on disk, and a
-production deployment needs the first one plus whichever heads it displays. A
-day of New York departures is roughly 900 rows of tabular data. There is no
-GPU, no vector database and no inference API bill. A realistic production
-footprint:
+An earlier draft of this section estimated these numbers from the outside. They
+are now measured, by `make cost` (`src/deploy_cost.py`), which writes
+`reports/metrics/deployment.json` on whatever machine runs it. Deployment cost
+is one of the few claims in this report that a hackathon project can actually
+verify rather than assume, so it is verified.
+
+| What | Measured | How |
+|---|---:|---|
+| Deployable artefacts | **5.2 MB** | booster + feature contract |
+| Every artefact the analysis built | 55.5 MB | all heads, baselines, cross-checks |
+| Cold start (load from disk) | 11.8 ms | median of 10 |
+| Feature build, one day of flights | 60.4 ms | 895 flights, from the raw tables |
+| **Scoring, one day of flights** | **12.5 ms** (p95 15.9 ms) | 886 flights, median of 30 |
+| Scoring, a single flight | 1.9 ms | median of 30 |
+| Whole two-month test period | 0.60 s | 53,991 flights — **90,816 flights/s** |
+| Hyperparameter search | 5.0 min wall, 0.33 core-hours | 40 draws × 3 folds |
+
+Two things worth pulling out. **Building the features costs five times more
+than running the model** — 0.067 ms per flight against 0.014 ms — which is the
+opposite of where people expect the time to go, and it means the thing to
+optimise in production is the join against the weather feed, not the booster.
+And a whole day of New York departures scores in **12.5 milliseconds**, so the
+scoring job is four orders of magnitude away from being the constraint.
+
+![Measured operating cost](figures/31_deployment_cost.png)
+
+Scaling is a multiplication, not a measurement — there is no fourth airport in
+this dataset — so the projection sweeps a volume multiplier instead of asserting
+a US-wide flight count:
+
+| Volume | Flights/day | Compute/day |
+|---|---:|---:|
+| New York, as measured | 886 | 0.07 s |
+| 10× | 8,860 | 0.72 s |
+| 30× | 26,580 | 2.2 s |
+| 100× | 88,600 | **7.2 s** |
+
+At a hundred times New York's volume — more departures than the entire US
+domestic system runs in a day — the daily scoring job takes seven seconds on one
+core. There is no GPU, no vector database and no inference API bill. The honest
+caveat is peak resident memory: 644 MB, but that is the *analysis* process
+holding two months of flights in pandas, not a scorer handling one day, which
+needs the 5.2 MB booster and a few hundred rows.
+
+Energy follows from the same measurement. The search cost 0.33 core-hours;
+at 5–30 W per core that is 0.002–0.010 kWh, or **0.6–3.7 grams of CO₂** at the
+US grid average. Training this model once costs roughly as much carbon as
+**twelve seconds** of one delayed narrowbody idling on a taxiway. The power
+figure is an assumption and is swept; the core-hours are measured.
 
 | Component | Requirement | Notes |
 |---|---|---|
-| Nightly retrain | ~10 min, 4 cores | not needed nightly — see §6, recalibration beats retraining |
+| Retrain | 5 min, 4 cores | not needed nightly — see §6, recalibration beats retraining |
 | Rolling recalibration | seconds, daily | the piece that actually needs to run daily |
-| Scoring | one batch of ~900 rows per day | a cron job, not a service |
+| Scoring | 12.5 ms/day | a cron job, not a service |
 | Weather feed | hourly METAR/ASOS | free from NOAA; already the input format |
 | Schedule feed | the airline's own timetable | already exists in every ops system |
 | Storage | <100 MB/year of predictions | |
@@ -1085,7 +1128,53 @@ The only genuinely recurring cost is a person to look at the list, which is the
 cost the impact model already charges against the benefit ($6 per alert, swept
 to $20 without changing the sign).
 
-### 11.2 Who maintains it
+### 11.2 Does it work at an airport it has never seen?
+
+The previous section costs out running this at more airports. Whether it *works*
+at more airports is a different question, and the draft answered it by asserting
+that "the feature code is origin-agnostic" — a claim about the code, not a
+measurement of the model. So it was measured, by `make transfer`
+(`src/transfer.py`).
+
+For each of the three New York airports in turn: train on the other two only,
+refit the historical-rate encodings on those two only so not a scrap of the
+held-out airport's history leaks in, early-stop on Sep–Oct rows from those two
+only, and then score the held-out airport's Nov–Dec flights. An airport the
+model has never seen, in a period it has never seen. The comparison is the
+shipped model — trained on all three — scored on exactly the same flights, with
+the row alignment asserted rather than trusted.
+
+| Held out | Base rate | Never-seen PR-AUC | Full-network PR-AUC | Skill retained | Lift @10% |
+|---|---:|---:|---:|---:|---:|
+| EWR | 26.9% | 0.492 | 0.533 | **92.4%** | 2.42× |
+| JFK | 23.5% | 0.403 | 0.454 | **88.7%** | 2.21× |
+| LGA | 24.4% | 0.510 | 0.535 | **95.3%** | 2.64× |
+
+![Leave-one-airport-out transfer](figures/30_transfer.png)
+
+**A model deployed at an airport with no local history keeps 92% of its skill on
+average, and never less than 89%.** The operational read — lift in the riskiest
+10%, the number an ops desk actually feels — holds at 2.2–2.6× against 2.5–2.7×
+within the network. Every holdout beats its own base rate comfortably.
+
+Two of the eight historical-rate encodings, `te_route` and
+`te_origin_sched_dep_hour`, are keyed on the origin and therefore collapse to
+the global prior for a held-out airport: they carry no information at a new
+airport by construction. That they can collapse and cost only 8% of the score is
+consistent with §7.1, where removing the entire historical-rate family cost
+nothing measurable. What transfers is weather, congestion, rotation slack and
+schedule structure — physics and timetables, which are not New York-specific.
+What does not transfer is the local history, and it turns out not to matter
+much.
+
+This is the strongest available evidence that the system is worth building for a
+network rather than for one airport, and it is worth being clear about its
+limit: all three airports share a metropolitan weather system and a common
+route network. Transfer to Denver in January is a stronger claim than this
+experiment can support. What it does rule out is the failure mode where a delay
+model is really a lookup table for the airports it was fitted on.
+
+### 11.3 Who maintains it
 
 The maintenance burden is small but not zero, and the honest version is that it
 concentrates in one place: **calibration drift**. §6 showed that the model's
@@ -1096,7 +1185,7 @@ fortnight of landed flights, plus the monitoring in §10.1 as a standing
 report. `make verify` exists precisely so that whoever inherits this can tell
 in one command whether it still does what the report says.
 
-### 11.3 Environmental and social effects, both directions
+### 11.4 Environmental and social effects, both directions
 
 **Environmental.** Recovered delay minutes are unburned fuel. At roughly 18 kg
 CO₂ per delay minute — derived from a narrowbody's idle burn, halved, because
@@ -1123,7 +1212,7 @@ discovers them:
   prediction, it will be wrong slightly more often than it is right, and the
   app's default view is built around that framing on purpose.
 
-### 11.4 A credible path past the demo
+### 11.5 A credible path past the demo
 
 The next step is not a bigger model. It is the one measurement this dataset
 cannot supply:
@@ -1134,10 +1223,13 @@ cannot supply:
 2. **Run a randomised rollout.** Alert on a random half of eligible flights and
    compare outcomes. That measures mitigation effectiveness directly and
    replaces the one assumption §9 has to sweep.
-3. **Extend beyond three origins.** The BTS on-time database has the same
-   schema for every US airport; the feature code is origin-agnostic, and the
-   inbound-leg blind spot in §8 closes as soon as the network is complete
-   rather than NYC-only.
+3. **Extend beyond three origins.** §11.2 now measures rather than assumes
+   this: a model deployed at an airport it has never seen keeps 92% of its
+   skill. The BTS on-time database has the same schema for every US airport,
+   and the inbound-leg blind spot in §8 closes as soon as the network is
+   complete rather than NYC-only. The open question is transfer to a
+   *different* weather regime, which three airports 20 miles apart cannot
+   answer.
 4. **Model three outcomes, not two.** §5.7 already shows cancellation is the
    most predictable outcome in the dataset (ROC-AUC 0.936). A production system
    should rank on-time / late / cancelled jointly.
@@ -1246,7 +1338,7 @@ fixed (`SEED = 42` in `src/config.py`); random search draws are seeded, so draw
 | `reports/metrics/severity_v2.json` | tiers, quantile heads, conditional-on-late |
 | `reports/metrics/model_fingerprints.json` | booster SHA-256 checksums |
 | `reports/metrics/lgbm_search.json` | all 40 search draws with per-fold scores |
-| `reports/metrics/xgb_search.json` | 8 XGBoost draws |
+| `reports/metrics/xgb_search.json` | all 40 XGBoost draws, matched budget |
 | `reports/metrics/ablation.json` | feature-family ablation |
 | `reports/metrics/shap_importance.json` | SHAP importance, group shares, out-of-range diagnostics |
 | `reports/metrics/segment_errors.csv` | per-segment error analysis |
@@ -1256,7 +1348,9 @@ fixed (`SEED = 42` in `src/config.py`); random search draws are seeded, so draw
 | `reports/metrics/impact_budget_curve.csv` | the budget curve, model vs historical rule vs random |
 | `reports/metrics/fairness.json` | per-group coverage audit and the priced equity trade-off |
 | `reports/metrics/fairness_*.csv` | one table per grouping |
-| `reports/figures/01–29` | all figures |
+| `reports/metrics/transfer.json` | leave-one-airport-out transfer, per airport and pooled |
+| `reports/metrics/deployment.json` | measured artefact size, latency, memory, throughput, energy |
+| `reports/figures/01–31` | all figures |
 
 ## Appendix C — Test suite
 
