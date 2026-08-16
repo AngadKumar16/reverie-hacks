@@ -1,5 +1,6 @@
 .PHONY: all setup data test eda train evaluate explain app clean reproduce \
-        report notebook verify severity horizon disruption impact fairness
+        report notebook verify severity horizon disruption impact fairness \
+        transfer cost video
 
 # Default to the project venv. Falling through to a bare `python3` picks up
 # whatever interpreter is on PATH -- typically a conda base env with different
@@ -56,7 +57,16 @@ impact:
 fairness:
 	$(PY) -m src.fairness
 
-## Typeset reports/report.md to PDF (needs pandoc + weasyprint).
+## Leave-one-airport-out: does it work at an airport it has never seen?
+transfer:
+	$(PY) -m src.transfer
+
+## Measured operating cost: artefact size, latency, memory, energy.
+cost:
+	$(PY) -m src.deploy_cost
+
+## Typeset reports/report.md to PDF. Uses pandoc + WeasyPrint if installed,
+## otherwise the `markdown` package and headless Chrome.
 report:
 	$(PY) scripts/build_report_pdf.py
 
@@ -64,17 +74,21 @@ report:
 notebook:
 	$(PY) scripts/build_notebook.py
 
+## Render docs/demo.mp4 from the figures and metrics. See docs/DEMO_VIDEO.md.
+video:
+	$(PY) scripts/build_demo_video.py
+
 app:
 	$(PY) -m streamlit run app/streamlit_app.py
 
-## 73 checks: determinism, leakage in the shipped model, and every headline
+## 119 checks: determinism, leakage in the shipped model, and every headline
 ## number in the report re-read from the metrics files.
 verify:
 	$(PY) scripts/verify.py
 
 ## Full pipeline from a clean clone. ~15 minutes on 4 cores.
 reproduce: data test eda train evaluate explain severity horizon disruption \
-           impact fairness verify
+           impact fairness transfer cost verify
 	@echo "Done. Figures in reports/figures, metrics in reports/metrics."
 
 clean:

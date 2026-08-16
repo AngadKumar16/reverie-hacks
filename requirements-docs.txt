@@ -1,0 +1,22 @@
+# Optional: only needed to *rebuild* the two generated deliverables. Neither is
+# required to run the analysis, and neither is pinned into requirements.txt on
+# purpose -- that file is the environment the reported results were produced
+# with, and nothing that cannot change a number belongs in it.
+#
+#   pip install -r requirements-docs.txt
+#   make video     # docs/demo.mp4
+#   make report    # reports/report.pdf
+#
+# Both outputs are committed, so a reviewer only needs this to regenerate them.
+
+# md -> HTML for the report PDF. Used when pandoc is not on PATH.
+markdown==3.10.3
+
+# A self-contained ffmpeg binary for the demo video. Preferred over a system
+# ffmpeg because a half-upgraded Homebrew leaves one that aborts on startup.
+imageio-ffmpeg==0.6.0
+
+# HTML -> PDF. Optional even here: if WeasyPrint will not import -- it needs
+# pango and cairo from the system package manager -- the build falls back to
+# headless Chrome, which most machines already have.
+# weasyprint==67.0

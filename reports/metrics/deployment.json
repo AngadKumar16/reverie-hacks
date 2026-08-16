@@ -1,0 +1,170 @@
+{
+  "environment": {
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "python": "3.12.7",
+    "machine": "arm64",
+    "n_jobs": 4
+  },
+  "artefacts": {
+    "all_artefacts_mb": {
+      "historical_rate.joblib": 0.0,
+      "lightgbm.joblib": 5.196,
+      "lightgbm_conditional_delay.joblib": 5.78,
+      "lightgbm_gate.joblib": 3.94,
+      "lightgbm_quantile_p50.joblib": 1.564,
+      "lightgbm_quantile_p90.joblib": 2.656,
+      "lightgbm_severity.joblib": 1.612,
+      "lightgbm_tier_gt120.joblib": 2.133,
+      "lightgbm_tier_gt15.joblib": 5.635,
+      "lightgbm_tier_gt60.joblib": 2.884,
+      "logistic_regression.joblib": 0.015,
+      "prior.joblib": 0.0,
+      "random_forest.joblib": 19.534,
+      "training_context.joblib": 0.002,
+      "xgboost.joblib": 4.602
+    },
+    "all_artefacts_total_mb": 55.55,
+    "deployable_subset": [
+      "lightgbm.joblib",
+      "training_context.joblib"
+    ],
+    "deployable_subset_mb": 5.198
+  },
+  "cold_start": {
+    "median_ms": 11.775478953495622,
+    "p95_ms": 1015.2742812759224,
+    "min_ms": 11.230041971430182,
+    "max_ms": 1833.6608749814332
+  },
+  "feature_build": {
+    "median_ms": 60.3519999422133,
+    "p95_ms": 94.37973327003418,
+    "min_ms": 58.743458008393645,
+    "max_ms": 99.65612483210862,
+    "n_flights": 895,
+    "date": "2013-12-22",
+    "ms_per_flight": 0.06743240217007072
+  },
+  "scoring": {
+    "one_day": {
+      "median_ms": 12.492436915636063,
+      "p95_ms": 15.883974835742265,
+      "min_ms": 11.6931670345366,
+      "max_ms": 16.606167191639543,
+      "n_flights": 886,
+      "date": "2013-12-22",
+      "us_per_flight": 14.099815931869145
+    },
+    "single_flight": {
+      "median_ms": 1.8792920745909214,
+      "p95_ms": 2.3947854526340953,
+      "min_ms": 1.4799581840634346,
+      "max_ms": 2.6033748872578144
+    },
+    "whole_test_period": {
+      "n_flights": 53991,
+      "seconds": 0.595,
+      "flights_per_second": 90816
+    },
+    "peak_rss_mb": 644.1,
+    "rss_growth_during_scoring_mb": 0.0,
+    "n_jobs": 4
+  },
+  "training": {
+    "available": true,
+    "measured_component": "LightGBM random search (40 draws x 3 CV folds)",
+    "n_draws": 40,
+    "wall_seconds": 298.4,
+    "wall_minutes": 4.97,
+    "median_draw_seconds": 7.2,
+    "core_seconds": 1193.6,
+    "core_hours": 0.332,
+    "excludes": [
+      "XGBoost search",
+      "final fits",
+      "severity/tier/quantile heads",
+      "cancellation models"
+    ],
+    "note": "lower bound: only the step that records per-draw timings"
+  },
+  "scale_projection": {
+    "ms_per_flight_end_to_end": 0.0815,
+    "basis": "measured feature build + measured scoring, one core-equivalent",
+    "rows": [
+      {
+        "multiplier": 1,
+        "flights_per_day": 886,
+        "daily_seconds": 0.07,
+        "daily_minutes": 0.001,
+        "fits_in_one_core_hour": true
+      },
+      {
+        "multiplier": 5,
+        "flights_per_day": 4430,
+        "daily_seconds": 0.36,
+        "daily_minutes": 0.006,
+        "fits_in_one_core_hour": true
+      },
+      {
+        "multiplier": 10,
+        "flights_per_day": 8860,
+        "daily_seconds": 0.72,
+        "daily_minutes": 0.012,
+        "fits_in_one_core_hour": true
+      },
+      {
+        "multiplier": 30,
+        "flights_per_day": 26580,
+        "daily_seconds": 2.17,
+        "daily_minutes": 0.036,
+        "fits_in_one_core_hour": true
+      },
+      {
+        "multiplier": 100,
+        "flights_per_day": 88600,
+        "daily_seconds": 7.22,
+        "daily_minutes": 0.12,
+        "fits_in_one_core_hour": true
+      }
+    ]
+  },
+  "energy_projection": {
+    "available": true,
+    "grid_kg_co2_per_kwh": 0.369,
+    "assumption": "CPU power per core, swept; not measured",
+    "training": [
+      {
+        "watts_per_core": 5.0,
+        "kwh": 0.0017,
+        "kg_co2": 0.0006
+      },
+      {
+        "watts_per_core": 15.0,
+        "kwh": 0.005,
+        "kg_co2": 0.0018
+      },
+      {
+        "watts_per_core": 30.0,
+        "kwh": 0.01,
+        "kg_co2": 0.0037
+      }
+    ],
+    "daily_scoring_at_100x": [
+      {
+        "watts_per_core": 5.0,
+        "kwh_per_day": 1e-05,
+        "kg_co2_per_year": 0.001
+      },
+      {
+        "watts_per_core": 15.0,
+        "kwh_per_day": 3e-05,
+        "kg_co2_per_year": 0.004
+      },
+      {
+        "watts_per_core": 30.0,
+        "kwh_per_day": 6e-05,
+        "kg_co2_per_year": 0.008
+      }
+    ]
+  }
+}

@@ -2,24 +2,33 @@
 
     python scripts/build_report_pdf.py
 
-Markdown -> HTML via pandoc, HTML -> PDF via WeasyPrint, falling back to
-headless Chrome when WeasyPrint is not installed. Kept as a script
-rather than a Makefile one-liner because the stylesheet needs to travel with
-it: the report is figure-heavy and the default rendering breaks images across
-page boundaries.
+Two stages, each with a fallback, because the report is a *required submission
+deliverable* -- a PDF that can only be rebuilt on the one machine that has
+pandoc and a working libpango is a liability, not a build step.
+
+    markdown -> HTML   pandoc, else the pure-Python `markdown` package
+    HTML     -> PDF    WeasyPrint, else headless Chrome
+
+The stylesheet travels with the script rather than living in the Makefile: the
+report is figure-heavy and the default rendering breaks images across page
+boundaries. Both PDF backends render the same stylesheet, but only WeasyPrint
+implements CSS Paged Media, so the `@bottom-center` page numbers and the
+suppressed number on `@page :first` survive there and are dropped by Chrome.
 """
 from __future__ import annotations
 
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS = ROOT / "reports"
 MD = REPORTS / "report.md"
-HTML = Path(tempfile.gettempdir()) / "_flightrisk_report.html"
+# Written next to the figures rather than in /tmp: Chrome resolves relative
+# image paths against the document's own location and has no equivalent of
+# WeasyPrint's base_url.
+HTML = REPORTS / "_report_build.html"
 PDF = REPORTS / "report.pdf"
 
 CSS = """
@@ -169,10 +178,50 @@ def _find_chrome() -> str | None:
     return None
 
 
+def md_to_html(md_text: str) -> str:
+    """Markdown body -> HTML. pandoc if present, else python-markdown."""
+    if shutil.which("pandoc"):
+        # No --standalone: pandoc's template injects its own <h1 class="title">,
+        # which would duplicate the H1 already at the top of the markdown.
+        #
+        # `+footnotes` matters -- §1.1 and §11.3 cite their sources as
+        # footnotes, and the bare gfm reader renders them as literal `[^1]`
+        # text. Older pandoc (< 2.11) rejects `gfm+footnotes` outright, so try
+        # the readers in descending order of fidelity and take the first that
+        # runs.
+        for reader in ("gfm+footnotes", "commonmark_x", "gfm"):
+            proc = subprocess.run(
+                ["pandoc", str(MD), "-f", reader, "-t", "html5"],
+                capture_output=True, text=True,
+            )
+            if proc.returncode == 0:
+                if reader == "gfm":
+                    print("note: this pandoc cannot render footnotes; the "
+                          "source citations in §1.1 and §11.3 will appear as "
+                          "[^n] markers. Upgrade pandoc to fix.",
+                          file=sys.stderr)
+                return proc.stdout
+        print("note: pandoc failed on every reader; falling back to the "
+              "`markdown` package.", file=sys.stderr)
+
+    try:
+        import markdown
+    except ImportError:
+        raise SystemExit(
+            "Need either a working pandoc on PATH or `pip install markdown` "
+            "to turn the report into HTML.")
+    return markdown.markdown(
+        md_text,
+        extensions=["tables", "fenced_code", "footnotes", "attr_list",
+                    "sane_lists", "md_in_html"],
+        extension_configs={"footnotes": {"BACKLINK_TEXT": "&#8617;"}},
+    )
+
+
 def _render_weasyprint(html: Path) -> bool:
     try:
         from weasyprint import HTML as WHTML
-    except ImportError:
+    except Exception:            # ImportError, or a missing pango/cairo at load
         return False
     # The stylesheet is embedded in the document, so no `stylesheets=` here.
     WHTML(filename=str(html), base_url=str(REPORTS)).write_pdf(str(PDF))
@@ -196,40 +245,16 @@ def build() -> None:
     if not MD.exists():
         raise SystemExit(f"{MD} not found")
 
-    # No --standalone: pandoc's template injects its own <h1 class="title">,
-    # which would duplicate the H1 already at the top of the markdown.
-    #
-    # `+footnotes` matters -- §1.1 and §11.3 cite their sources as footnotes,
-    # and the bare gfm reader renders them as literal `[^1]` text.
-    # Older pandoc (< 2.11) rejects `gfm+footnotes` outright, so try the
-    # readers in descending order of fidelity and take the first that runs.
-    body = None
-    for reader in ("gfm+footnotes", "commonmark_x", "gfm"):
-        proc = subprocess.run(["pandoc", str(MD), "-f", reader, "-t", "html5"],
-                              capture_output=True, text=True)
-        if proc.returncode == 0:
-            body = proc.stdout
-            if reader == "gfm":
-                print("note: this pandoc cannot render footnotes; the source "
-                      "citations in §1.1 and §11.3 will appear as [^n] markers. "
-                      "Upgrade pandoc to fix.", file=sys.stderr)
-            break
-    if body is None:
-        raise SystemExit("pandoc failed on every reader; is it installed?")
-
-    # Written next to the figures rather than in /tmp: Chrome resolves relative
-    # image paths against the document's own location and has no equivalent of
-    # WeasyPrint's base_url.
-    html = REPORTS / "_report_build.html"
-    html.write_text(
+    body = md_to_html(MD.read_text())
+    HTML.write_text(
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         "<title>FlightRisk NYC</title><style>" + CSS + "</style></head><body>"
         + body + "</body></html>")
 
     try:
-        if _render_weasyprint(html):
+        if _render_weasyprint(HTML):
             engine = "WeasyPrint"
-        elif _render_chrome(html):
+        elif _render_chrome(HTML):
             engine = "headless Chrome (no page numbers -- "
             engine += "`pip install weasyprint` for those)"
         else:
@@ -238,10 +263,10 @@ def build() -> None:
                 "  pip install weasyprint      (macOS also needs: brew install pango)\n"
                 "or install Google Chrome, which this script will use "
                 "automatically.\n"
-                f"The typeset HTML has been left at {html} in the meantime.")
+                f"The typeset HTML has been left at {HTML} in the meantime.")
     finally:
         if PDF.exists():
-            html.unlink(missing_ok=True)
+            HTML.unlink(missing_ok=True)
 
     print(f"wrote {PDF} ({PDF.stat().st_size / 1e6:.1f} MB) via {engine}")
 
