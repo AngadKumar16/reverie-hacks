@@ -4,7 +4,6 @@
 [**report**](reports/report.md) ([PDF](reports/report.pdf)) ·
 [**demo video**](docs/demo.mp4) ·
 [**dataset**](https://www.kaggle.com/datasets/aephidayatuloh/nyc-flights-2013) ·
-[**how this maps to the judging criteria**](docs/SUBMISSION.md)
 
 Will a flight leaving JFK, LaGuardia or Newark arrive more than 15 minutes
 late? This project answers that at the **scheduled departure time, before
